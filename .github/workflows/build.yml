@@ -23,6 +23,9 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Verify native sources parse
+        run: node --check scripts/android-inject.js
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
 
@@ -47,25 +50,11 @@ jobs:
           cp assets/sounds/reminder_tone.wav android/app/src/main/res/raw/reminder_tone.wav
           ls -la android/app/src/main/res/raw/
 
-      - name: Add required permissions
+      - name: Inject native alarm module
         run: |
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          
-          for PERM in \
-            "android.permission.SCHEDULE_EXACT_ALARM" \
-            "android.permission.USE_EXACT_ALARM" \
-            "android.permission.POST_NOTIFICATIONS" \
-            "android.permission.RECEIVE_BOOT_COMPLETED" \
-            "android.permission.VIBRATE" \
-            "android.permission.WAKE_LOCK"
-          do
-            if ! grep -q "$PERM" "$MANIFEST"; then
-              sed -i "/<manifest/a\    <uses-permission android:name=\"$PERM\" />" "$MANIFEST"
-            fi
-          done
-          
-          echo "=== Current permissions ==="
-          grep "uses-permission" "$MANIFEST"
+          node scripts/android-inject.js
+          echo "=== AndroidManifest.xml after injection ==="
+          cat android/app/src/main/AndroidManifest.xml
 
       - name: Sync Capacitor
         run: npx cap sync android

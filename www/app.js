@@ -1,6 +1,9 @@
 const LocalNotifications = window.Capacitor?.Plugins?.LocalNotifications || null;
 const Preferences = window.Capacitor?.Plugins?.Preferences || null;
 const NativeSettings = window.Capacitor?.Plugins?.NativeSettings || null;
+// Native alarm path: Android rings from a foreground service, so it keeps
+// sounding with the screen off and the app killed. Null on the web build.
+const NativeAlarm = window.Capacitor?.Plugins?.AlarmClock || null;
 const Capacitor = window.Capacitor || { getPlatform: () => 'web' };
 
 const STORAGE_KEY = 'reminderkrunga_data_v1';
@@ -448,6 +451,12 @@ function makeNotification(r, opts = {}) {
 
 /** Cancel main + snooze + every possible chain slot for a reminder. */
 async function cancelReminderNotifications(id) {
+  // Never pull the rug from under an alarm that is ringing right now:
+  // fireAlarm() calls this to silence the repeat alerts while keeping the
+  // alarm itself alive, and Android owns that alarm until it is stopped.
+  const ringingHere = alarmState && alarmState.id === id;
+  if (!ringingHere) await nativeCancel(id);
+
   if (!LocalNotifications) return;
 
   const ids = [id, snoozeIdFor(id)];
@@ -542,6 +551,11 @@ async function scheduleReminder(r) {
     // 3. Repeat alerts up to the nearest moment this reminder can ring
     const chainAt = snoozeActive ? snoozeMs : nextOccurrenceMs(r);
     await scheduleChain(r, chainAt);
+
+    // 4. Same moment to the native alarm, so it still rings when the app is
+    //    closed or the screen is off. pendingFireMs honours an active snooze
+    //    and is a no-op once the moment is outside the ring window.
+    await nativeSchedule(r, pendingFireMs(r));
   } catch (e) {
     console.error('Schedule error:', e);
     throw e;
@@ -586,6 +600,67 @@ let alarmState = null;      // { id, fireMs, untilMs }
 let vibrateTimer = null;
 let wakeLock = null;
 
+// Who owns the ringing right now. On Android it is the native service; the
+// WebView only plays the tone when there is no native path (web build, or a
+// device where the foreground service start was refused).
+let jsRinging = false;
+let nativeRingSeen = false;
+let nativePollPending = false;
+
+/* ---------- native alarm bridge (rings while the phone is locked) ------- */
+
+async function nativeGetState() {
+  if (!NativeAlarm) return null;
+  try {
+    return await NativeAlarm.getState();
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Ask Android to ring this reminder at atMs. A time in the past means
+ * "ring right now", which is how the WebView hands a due alarm over.
+ * Returns null (and schedules nothing) when the moment has already
+ * gone stale - the same window the JS timer uses.
+ */
+async function nativeSchedule(r, atMs) {
+  if (!NativeAlarm || !r || r.done || !Number.isFinite(atMs)) return null;
+  if (atMs < Date.now() - ringGraceMs()) return null;
+
+  try {
+    return await NativeAlarm.schedule({
+      id: r.id,
+      at: atMs,
+      base: new Date(r.time).getTime(),
+      repeat: isRepeating(r) ? r.repeat : 'none',
+      title: r.title,
+      body: r.description || 'Time for your reminder!',
+      ringMinutes: settings.ringMinutes,
+      snoozeMinutes: settings.snoozeMinutes,
+      sound: settings.alarmSound,
+      vibrate: settings.vibration
+    });
+  } catch (e) {
+    console.warn('Native alarm schedule failed:', e);
+    return null;
+  }
+}
+
+async function nativeCancel(id) {
+  if (!NativeAlarm || id == null) return;
+  try {
+    await NativeAlarm.cancel({ id });
+  } catch (e) { /* ignore */ }
+}
+
+async function nativeStop(id) {
+  if (!NativeAlarm || id == null) return;
+  try {
+    await NativeAlarm.stop({ id });
+  } catch (e) { /* ignore */ }
+}
+
 function ringGraceMs() {
   return settings.ringMinutes * 60000 + 60000;
 }
@@ -608,6 +683,8 @@ async function releaseWakeLock() {
 }
 
 function startRinging() {
+  jsRinging = true;
+
   if (settings.alarmSound) {
     try {
       alarmAudio.loop = true;
@@ -636,6 +713,8 @@ function startRinging() {
 }
 
 function stopRinging() {
+  jsRinging = false;
+
   try {
     alarmAudio.pause();
     alarmAudio.currentTime = 0;
@@ -673,10 +752,129 @@ function updateAlarmStatus() {
   alarmStatus.textContent = `Ringing… stops in ${mins}:${pad(secs)}`;
 }
 
+/**
+ * Decide who makes the noise.
+ *
+ * On Android the foreground service owns the ringing: it keeps sounding with
+ * the screen off and even if Android kills the WebView. The WebView only
+ * plays the tone itself when there is no native path at all.
+ */
+async function armRing(r, fireMs) {
+  if (!NativeAlarm) {
+    startRinging();
+    return;
+  }
+
+  try {
+    const st = await nativeGetState();
+    if (st && st.ringing && st.ringing[String(r.id)]) {
+      nativeRingSeen = true;
+      return;                       // Android is already ringing for us
+    }
+    if (await nativeSchedule(r, fireMs)) return;   // past time = ring now
+  } catch (e) {
+    console.warn('Falling back to WebView ring:', e);
+  }
+
+  startRinging();
+}
+
+/**
+ * Mirror the native ring state into the overlay, every second:
+ *   - Android stopped ringing (Stop on the lock screen / notification) ->
+ *     close the overlay, it must not keep pretending to ring.
+ *   - Android never took the alarm -> start the WebView tone after a grace
+ *     period so the reminder is never silently lost.
+ */
+async function pollNative() {
+  if (nativePollPending || !NativeAlarm || !alarmState) return;
+  nativePollPending = true;
+
+  try {
+    const st = await nativeGetState();
+    if (!st || !alarmState) return;
+
+    const ringing = st.ringing && st.ringing[String(alarmState.id)];
+    if (ringing) {
+      nativeRingSeen = true;
+      return;
+    }
+
+    if (nativeRingSeen) {
+      hideAlarm();
+      showToast('Alarm silenced 🔕');
+      return;
+    }
+
+    if (!jsRinging && Date.now() - alarmState.fireMs > 3000) {
+      startRinging();
+    }
+  } catch (e) {
+    // Native path unavailable: the WebView tone is already the fallback.
+  } finally {
+    nativePollPending = false;
+  }
+}
+
 function hideAlarm() {
+  if (alarmState) nativeStop(alarmState.id);   // silence Android too
+
   stopRinging();
   alarmScreen.classList.remove('active', 'ringing');
   alarmState = null;
+  nativeRingSeen = false;
+}
+
+/**
+ * Reconcile with whatever Android did while the WebView was asleep:
+ *  - reminders ticked done on the lock screen get marked in the list
+ *  - snoozes taken from the notification / native screen become snoozedUntil
+ *  - an alarm still ringing natively brings the full screen overlay back
+ */
+async function syncNativeState() {
+  const st = await nativeGetState();
+  if (!st) return;
+
+  for (const key of Object.keys(st.pendingDone || {})) {
+    const id = parseInt(key, 10);
+    const r = getReminder(id);
+    if (r && !r.done) {
+      try { await toggleDone(id); } catch (e) { /* ignore */ }
+    }
+    try { await NativeAlarm.ackDone({ id }); } catch (e) { /* ignore */ }
+  }
+
+  let reschedule = false;
+  for (const key of Object.keys(st.snooze || {})) {
+    const entry = st.snooze[key];
+    const at = entry && entry.at;
+    const r = getReminder(parseInt(key, 10));
+    if (!r || !at || r.done) continue;
+
+    const current = r.snoozedUntil ? new Date(r.snoozedUntil).getTime() : 0;
+    if (current !== at) {
+      r.snoozedUntil = new Date(at).toISOString();
+      r.lastRingKey = null;
+      await saveData();
+      reschedule = true;
+    }
+  }
+  // Re-books the repeat nudges around the adopted snooze.
+  if (reschedule) {
+    for (const key of Object.keys(st.snooze || {})) {
+      const r = getReminder(parseInt(key, 10));
+      if (r && !r.done) { try { await scheduleReminder(r); } catch (e) { /* ignore */ } }
+    }
+  }
+
+  if (alarmState) return;
+  const ringingList = Object.values(st.ringing || {})
+    .filter(a => a && Date.now() < (a.until || 0));
+  if (!ringingList.length) return;
+
+  const info = ringingList[0];
+  const r = getReminder(info.id);
+  if (r) await fireAlarm(r, info.firedAt || Date.now());
 }
 
 async function fireAlarm(r, fireMs) {
@@ -706,7 +904,7 @@ async function fireAlarm(r, fireMs) {
 
   alarmScreen.classList.add('active', 'ringing');
   updateAlarmStatus();
-  startRinging();
+  await armRing(r, fireMs);
 }
 
 /** Called every second + whenever the app comes back to the foreground. */
@@ -714,6 +912,8 @@ function alarmTick() {
   const now = Date.now();
 
   if (alarmState) {
+    pollNative();
+
     if (now >= alarmState.untilMs) {
       const r = getReminder(alarmState.id);
       hideAlarm();
@@ -797,8 +997,9 @@ alarmDoneBtn.addEventListener('click', () => {
 });
 
 // Autoplay can be blocked: first tap on the alarm screen starts the sound.
+// Skipped when Android is already ringing, or we would play it twice.
 alarmScreen.addEventListener('pointerdown', () => {
-  if (alarmState && settings.alarmSound && alarmAudio.paused) {
+  if (alarmState && settings.alarmSound && alarmAudio.paused && !nativeRingSeen) {
     alarmAudio.play().then(() => {
       guardWhileRinging();
       if (alarmState) {
@@ -1707,6 +1908,10 @@ backupFile.addEventListener('change', async (e) => {
 
   await runOnboarding();
 
+  // Adopt anything Android did while we were asleep (lock screen snooze/done,
+  // an alarm that is still ringing) before checking what is due now.
+  await syncNativeState();
+
   // Catch anything that came due while the app was closed / starting up,
   // then heal any native schedule that got lost (e.g. app killed mid-alarm).
   alarmTick();
@@ -1725,6 +1930,7 @@ backupFile.addEventListener('change', async (e) => {
   document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible') {
       render();
+      await syncNativeState();
       alarmTick();
 
       // Screen lock releases the wake lock on its own — grab it back
