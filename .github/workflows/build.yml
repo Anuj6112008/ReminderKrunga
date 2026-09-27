@@ -1,0 +1,84 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Add Android platform
+        run: npx cap add android
+
+      - name: Generate icons & splash
+        run: npx capacitor-assets generate --android
+
+      - name: Create notification small icon
+        run: |
+          mkdir -p android/app/src/main/res/drawable
+          cp assets/icon-foreground.png android/app/src/main/res/drawable/ic_stat_icon.png
+          echo "Notification icon created"
+
+      - name: Copy notification sound
+        run: |
+          mkdir -p android/app/src/main/res/raw
+          cp assets/sounds/reminder_tone.wav android/app/src/main/res/raw/reminder_tone.wav
+          ls -la android/app/src/main/res/raw/
+
+      - name: Add required permissions
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          
+          for PERM in \
+            "android.permission.SCHEDULE_EXACT_ALARM" \
+            "android.permission.USE_EXACT_ALARM" \
+            "android.permission.POST_NOTIFICATIONS" \
+            "android.permission.RECEIVE_BOOT_COMPLETED" \
+            "android.permission.VIBRATE" \
+            "android.permission.WAKE_LOCK"
+          do
+            if ! grep -q "$PERM" "$MANIFEST"; then
+              sed -i "/<manifest/a\    <uses-permission android:name=\"$PERM\" />" "$MANIFEST"
+            fi
+          done
+          
+          echo "=== Current permissions ==="
+          grep "uses-permission" "$MANIFEST"
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Build Debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReminderKrunga-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
