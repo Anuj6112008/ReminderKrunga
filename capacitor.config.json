@@ -1,0 +1,21 @@
+{
+  "appId": "com.reminderkrunga.app",
+  "appName": "ReminderKrunga",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_icon",
+      "iconColor": "#6366f1",
+      "sound": "reminder_tone.wav"
+    },
+    "Preferences": {
+      "group": "ReminderKrungaPrefs"
+    }
+  }
+}

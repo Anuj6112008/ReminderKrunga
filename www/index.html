@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#6366f1">
+  <title>ReminderKrunga</title>
+  <link rel="icon" href="icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ============ LOADER / SPLASH SCREEN ============ -->
+  <div class="loader-screen" id="loaderScreen">
+    <div class="loader-logo">
+      <img src="icon.png" alt="ReminderKrunga">
+    </div>
+    <div class="loader-name">ReminderKrunga</div>
+    <div class="loader-spinner"></div>
+    <div class="loader-credit">Made with <span class="heart">❤</span> by <b>@PyAnuj</b></div>
+  </div>
+
+  <!-- ============ ONBOARDING / PERMISSIONS SETUP ============ -->
+  <div class="onboarding-screen" id="onboardingScreen">
+    <div class="onboarding-card">
+      <div class="onboarding-icon" id="obIcon">🔔</div>
+      <h2 class="onboarding-title" id="obTitle">Enable Notifications</h2>
+      <p class="onboarding-desc" id="obDesc">
+        ReminderKrunga needs notification permission to remind you on time.
+      </p>
+      <button class="btn-primary onboarding-btn" id="obActionBtn">Allow Notifications</button>
+      <button class="onboarding-skip" id="obSkipBtn">Skip</button>
+      <div class="onboarding-dots">
+        <span class="dot active" data-step="0"></span>
+        <span class="dot" data-step="1"></span>
+        <span class="dot" data-step="2"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <header class="app-header">
+    <div class="header-left">
+      <h1>ReminderKrunga</h1>
+      <p class="header-sub" id="headerSub">0 pending</p>
+    </div>
+    <div class="header-actions">
+      <button class="icon-btn" id="settingsBtn" title="Settings">⚙️</button>
+      <button class="icon-btn" id="themeToggle" title="Toggle theme">
+        <span id="themeIcon">🌙</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Search Bar -->
+  <div class="search-wrap">
+    <input type="text" id="searchInput" placeholder="🔍 Search reminders...">
+  </div>
+
+  <!-- Filter Chips -->
+  <div class="chips-scroll">
+    <div class="chips" id="filterChips">
+      <button class="chip active" data-filter="all">All</button>
+      <button class="chip" data-filter="today">Today</button>
+      <button class="chip" data-filter="week">This Week</button>
+      <button class="chip" data-filter="overdue">Overdue</button>
+      <button class="chip" data-filter="high">High Priority</button>
+    </div>
+  </div>
+
+  <!-- Insights: Next up + Daily progress -->
+  <section class="insights" id="insights">
+    <div class="insight-card next-card">
+      <div class="insight-label">⏰ Next up</div>
+      <div class="insight-main" id="nextUpTitle">Nothing scheduled</div>
+      <div class="insight-sub" id="nextUpTime">Add a reminder to get started</div>
+      <div class="progress-track"><span id="nextUpFill"></span></div>
+    </div>
+
+    <div class="insight-card progress-card">
+      <div class="insight-label">🔥 Today</div>
+      <div class="insight-main" id="progressText">0 / 0</div>
+      <div class="insight-sub" id="progressSub">Nothing due today yet</div>
+      <div class="progress-track"><span id="progressFill"></span></div>
+    </div>
+  </section>
+
+  <!-- Main Content -->
+  <main class="content" id="mainContent">
+    <ul id="remindersList" class="reminders-list"></ul>
+  </main>
+
+  <!-- Floating Add Button -->
+  <button class="fab" id="fabAdd">
+    <span>+</span>
+  </button>
+
+  <!-- Add/Edit Modal -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modalTitle">New Reminder</h2>
+        <button class="icon-btn" id="closeModal">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Title *</label>
+          <input type="text" id="inputTitle" placeholder="What to remember?" maxlength="100">
+        </div>
+
+        <div class="form-group">
+          <label>Description</label>
+          <textarea id="inputDesc" placeholder="Add details (optional)" maxlength="500"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>Date & Time *</label>
+          <input type="datetime-local" id="inputDateTime">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Category</label>
+            <select id="inputCategory">
+              <option value="personal">👤 Personal</option>
+              <option value="work">💼 Work</option>
+              <option value="health">💊 Health</option>
+              <option value="study">📚 Study</option>
+              <option value="other">📌 Other</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Priority</label>
+            <select id="inputPriority">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Repeat</label>
+          <select id="inputRepeat">
+            <option value="none">Never</option>
+            <option value="daily">Every Day</option>
+            <option value="weekly">Every Week</option>
+            <option value="monthly">Every Month</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-secondary" id="cancelBtn">Cancel</button>
+        <button class="btn-primary" id="saveBtn">Save Reminder</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Dialog -->
+  <div class="modal-overlay" id="confirmOverlay">
+    <div class="modal confirm-modal">
+      <h3 id="confirmTitle">Delete Reminder?</h3>
+      <p id="confirmMsg">This action cannot be undone.</p>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="confirmNo">Cancel</button>
+        <button class="btn-danger" id="confirmYes">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div class="modal-overlay" id="settingsOverlay">
+    <div class="modal settings-modal">
+      <div class="modal-header">
+        <h2>⚙️ Settings</h2>
+        <button class="icon-btn" id="closeSettings">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="settings-group-title">⏰ Alarm</div>
+
+        <div class="setting-row">
+          <div class="setting-text">
+            <div class="setting-name">Alarm sound</div>
+            <div class="setting-hint">Ring out loud when a reminder is due</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setAlarmSound">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-text">
+            <div class="setting-name">Vibration</div>
+            <div class="setting-hint">Buzz along with the ring</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setVibration">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-text">
+            <div class="setting-name">Repeat alerts when app is closed</div>
+            <div class="setting-hint">Keeps pinging you until you respond</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setChainAlerts">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-text">
+            <div class="setting-name">Keep ringing for</div>
+            <div class="setting-hint">Auto-silence after this long</div>
+          </div>
+          <select class="setting-select" id="setRingMinutes">
+            <option value="1">1 min</option>
+            <option value="3">3 min</option>
+            <option value="5">5 min</option>
+            <option value="10">10 min</option>
+          </select>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-text">
+            <div class="setting-name">Snooze duration</div>
+            <div class="setting-hint">How long the snooze button pauses it</div>
+          </div>
+          <select class="setting-select" id="setSnoozeMinutes">
+            <option value="3">3 min</option>
+            <option value="5">5 min</option>
+            <option value="10">10 min</option>
+            <option value="15">15 min</option>
+            <option value="30">30 min</option>
+          </select>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-text">
+            <div class="setting-name">Test the alarm</div>
+            <div class="setting-hint">Play the tone once to check volume</div>
+          </div>
+          <button class="btn-secondary setting-btn" id="testSoundBtn">🔊 Test</button>
+        </div>
+
+        <div class="settings-group-title">💾 Your data</div>
+
+        <div class="setting-row">
+          <div class="setting-text">
+            <div class="setting-name">Backup reminders</div>
+            <div class="setting-hint">Save everything as a file or text</div>
+          </div>
+          <button class="btn-secondary setting-btn" id="exportBtn">Export</button>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-text">
+            <div class="setting-name">Restore reminders</div>
+            <div class="setting-hint">Bring your data back on a new phone</div>
+          </div>
+          <button class="btn-secondary setting-btn" id="importBtn">Import</button>
+        </div>
+
+        <div class="settings-group-title">ℹ️ About</div>
+        <p class="about-text">
+          ReminderKrunga v1.1.0<br>
+          Made with <span class="heart">❤</span> by <b>@PyAnuj</b><br>
+          Your data stays on your phone.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backup (export / import) -->
+  <div class="modal-overlay" id="backupOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="backupTitle">Backup</h2>
+        <button class="icon-btn" id="closeBackup">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <p class="backup-hint" id="backupHint">Copy this text somewhere safe.</p>
+        <textarea id="backupText" rows="9" spellcheck="false" placeholder="Paste your backup here..."></textarea>
+        <input type="file" id="backupFile" accept="application/json,.json,text/plain" hidden>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-secondary" id="backupSecondary">Choose file</button>
+        <button class="btn-primary" id="backupPrimary">Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Full screen alarm -->
+  <div class="alarm-screen" id="alarmScreen">
+    <div class="alarm-pulse" aria-hidden="true">
+      <span></span><span></span><span></span>
+    </div>
+    <div class="alarm-icon">⏰</div>
+    <div class="alarm-kicker">REMINDER</div>
+    <div class="alarm-time" id="alarmTime">--:--</div>
+
+    <div class="alarm-card">
+      <div class="alarm-title" id="alarmTitle">Reminder</div>
+      <div class="alarm-desc" id="alarmDesc"></div>
+      <div class="alarm-status" id="alarmStatus">Ringing…</div>
+    </div>
+
+    <div class="alarm-actions">
+      <button class="alarm-btn snooze" id="alarmSnooze">Snooze</button>
+      <button class="alarm-btn stop" id="alarmStop">Stop</button>
+    </div>
+    <button class="alarm-done" id="alarmDone">✓ &nbsp;Mark as Done</button>
+
+    <div class="alarm-hint" id="alarmHint">Tap a button to silence the alarm</div>
+  </div>
+
+  <audio id="alarmAudio" src="reminder_tone.wav" preload="auto" loop playsinline></audio>
+
+  <!-- Toast -->
+  <div class="toast" id="toast">
+    <span id="toastMsg"></span>
+    <button class="toast-action" id="toastAction" type="button">Undo</button>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
