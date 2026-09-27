@@ -7,6 +7,8 @@ import android.util.Log;
 
 import org.json.JSONObject;
 
+import java.util.Iterator;
+
 /**
  * Re-arms every stored alarm after a reboot. AlarmManager throws away all
  * pending alarms when the device restarts, so without this the app would
@@ -25,7 +27,7 @@ public class BootReceiver extends BroadcastReceiver {
                 || "android.intent.action.QUICKBOOT_POWERON".equals(action)
                 || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)
                 || Intent.ACTION_TIMEZONE_CHANGED.equals(action)
-                || Intent.ACTION_TIME_SET.equals(action);
+                || Intent.ACTION_TIME_CHANGED.equals(action);
 
         if (!isBoot) return;
 
@@ -39,7 +41,11 @@ public class BootReceiver extends BroadcastReceiver {
         AlarmService.stopRinging(context, -1);
 
         int rearmed = 0;
-        for (String key : pending.keys()) {
+        // JSONObject.keys() hands back an Iterator, not an Iterable, so this
+        // has to be an explicit while-loop - a for-each would not compile.
+        Iterator<String> keys = pending.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
             try {
                 AlarmStore.AlarmInfo info =
                         AlarmStore.AlarmInfo.fromJson(pending.optJSONObject(key));
