@@ -34,22 +34,55 @@ public class AlarmClockPlugin extends Plugin {
     private static final String SNOOZE = AlarmReceiver.AlarmStoreSection.SNOOZE;
     private static final String PENDING_DONE = AlarmReceiver.AlarmStoreSection.PENDING_DONE;
 
+    /**
+     * Read a number whatever type the JSON decoder produced.
+     *
+     * Capacitor's {@code PluginCall.getDouble()} accepts only Double, Float
+     * and Integer - but org.json parses an epoch-millisecond timestamp such
+     * as 1790510520000 as a {@code Long}, because it does not fit an int.
+     * The alarm time therefore came back null on every real device (while
+     * {@code getInt("id")} kept working, since a small id really is an
+     * Integer), so no alarm was ever booked and nothing ever reached the
+     * lock screen. Anything with a wide range must be read like this.
+     */
+    private static Long readNumber(JSObject data, String key) {
+        if (data == null) return null;
+        Object raw = data.opt(key);
+        if (raw instanceof Number) return ((Number) raw).longValue();
+        if (raw instanceof String) {
+            try {
+                return Long.valueOf(((String) raw).trim());
+            } catch (NumberFormatException ignored) {
+                // fall through: null is the honest answer for junk
+            }
+        }
+        return null;
+    }
+
+    /** Same, for ids that live in an int. */
+    private static Integer readId(JSObject data, String key) {
+        Long value = readNumber(data, key);
+        return value == null ? null : value.intValue();
+    }
+
     @PluginMethod
     public void schedule(PluginCall call) {
-        // getInteger/getDouble on PluginCall are null-safe; the JSObject
-        // equivalents (JSONObject.getInt) throw when the key is missing.
-        Integer idObj = call.getInt("id");
-        Double atObj = call.getDouble("at");
+        JSObject data = call.getData();
+
+        Integer idObj = readId(data, "id");
+        Long atObj = readNumber(data, "at");
         if (idObj == null || atObj == null) {
-            call.reject("id and at are required");
+            // Echo what actually arrived: a silent type mismatch here is the
+            // one failure that can quietly disable every alarm, so it must
+            // never be invisible in the diagnostics log.
+            call.reject("id and at are required (id=" + data.opt("id")
+                    + " at=" + data.opt("at") + ")");
             return;
         }
 
-        JSObject data = call.getData();
-
         AlarmStore.AlarmInfo info = new AlarmStore.AlarmInfo();
         info.id = idObj;
-        info.at = atObj.longValue();
+        info.at = atObj;
         info.repeat = data.optString("repeat", "none");
         info.base = data.optLong("base", (long) info.at);
         info.title = data.optString("title", "");
@@ -69,13 +102,14 @@ public class AlarmClockPlugin extends Plugin {
         JSObject out = new JSObject();
         out.put("ok", true);
         out.put("exact", exact);
+        out.put("at", info.at);      // echoed back so JS can prove it survived
         out.put("canScheduleExact", AlarmScheduler.canScheduleExact(getContext()));
         call.resolve(out);
     }
 
     @PluginMethod
     public void cancel(PluginCall call) {
-        Integer id = call.getInt("id");
+        Integer id = readId(call.getData(), "id");
         if (id == null) {
             call.reject("id is required");
             return;
@@ -94,7 +128,7 @@ public class AlarmClockPlugin extends Plugin {
 
     @PluginMethod
     public void stop(PluginCall call) {
-        Integer id = call.getInt("id");
+        Integer id = readId(call.getData(), "id");
         if (id == null) {
             call.reject("id is required");
             return;
@@ -356,7 +390,7 @@ public class AlarmClockPlugin extends Plugin {
      */
     @PluginMethod
     public void ackDone(PluginCall call) {
-        Integer id = call.getInt("id");
+        Integer id = readId(call.getData(), "id");
         if (id == null) {
             call.reject("id is required");
             return;

@@ -644,7 +644,13 @@ async function nativeSchedule(r, atMs) {
       sound: settings.alarmSound,
       vibrate: settings.vibration
     });
-    diag('js', `armed id=${r.id} at=${atMs} exact=${res ? !!res.exact : '?'}`);
+    // Android echoes the time back: if it did not survive the bridge, the
+    // alarm was booked for the wrong moment and that must be visible.
+    if (res && Number.isFinite(res.at) && Math.abs(res.at - atMs) > 1000) {
+      diag('js', `schedule ECHO MISMATCH id=${r.id} sent=${atMs} got=${res.at}`);
+    }
+    const armedAt = res && Number.isFinite(res.at) ? res.at : atMs;
+    diag('js', `armed id=${r.id} at=${armedAt} exact=${res ? !!res.exact : '?'}`);
     return res;
   } catch (e) {
     console.warn('Native alarm schedule failed:', e);
@@ -813,6 +819,10 @@ function diagVerdict(st, perms, jsDue, nativeArmed) {
   }
 
   if (jsDue > 0 && nativeArmed === 0) {
+    // Nothing was booked, so the most recent rejection explains it.
+    const rejected = localDiag.slice().reverse()
+      .find(e => e && e.tag === 'js' && /ERROR|MISMATCH/.test(e.m || ''));
+    if (rejected) return `✗ Android rejected the schedule: ${rejected.m}`;
     return '✗ no native alarm armed at all - scheduling never reached Android';
   }
 

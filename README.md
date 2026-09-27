@@ -107,6 +107,18 @@ Events are durable (they survive the process being killed) and kept one slot per
 so opening the app repeatedly never washes the evidence out. **Copy log** puts the whole thing on
 the clipboard — that is what to send when reporting that an alarm did not ring.
 
+## ⚠️ One Capacitor pitfall that disables every alarm
+
+`PluginCall.getDouble()` only accepts `Double`, `Float` and `Integer` — but org.json parses an
+epoch-millisecond timestamp like `1790510520000` as a **`Long`**, so it came back `null` and the
+plugin rejected every schedule. `getInt("id")` kept working (a small id really is an `Integer`),
+which made the bug look like a partial failure. Read wide numbers through
+`AlarmClockPlugin.readNumber()` instead, and never through the typed getters.
+
+The diagnostics card is there to catch exactly this class of silent bridge failure: its verdict
+names a rejected schedule, and Android echoes the booked time back so a value that does not
+survive the trip is flagged rather than quietly lost.
+
 ## 📱 Tips for your users
 
 For reminders that must never be missed, ask users to allow **Exact alarms** and turn on
