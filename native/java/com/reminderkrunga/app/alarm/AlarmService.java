@@ -60,6 +60,18 @@ public class AlarmService extends Service {
         return 991000 + Math.floorMod(id, 900);
     }
 
+    /**
+     * Whether the service is currently sounding an alarm. AlarmActivity polls
+     * this: if Android refused the background start and the full screen intent
+     * never came up either, the activity rings on its own instead of sitting
+     * there silent.
+     */
+    private static volatile boolean ringingNow = false;
+
+    public static boolean isRinging() {
+        return ringingNow;
+    }
+
     /* ---------------------------------------------------------- commands */
 
     /** Ring this alarm now (also used by AlarmActivity if the start was refused). */
@@ -76,6 +88,10 @@ public class AlarmService extends Service {
             }
         } catch (Exception e) {
             Log.w(TAG, "startRing refused: " + e.getMessage());
+            // Android 12+ refuses background FGS starts unless an exemption
+            // applies. An exact alarm fires one again in a moment, which is
+            // an exemption in its own right - so try once more shortly.
+            AlarmScheduler.scheduleStartRetry(context, info.id);
         }
     }
 
@@ -224,6 +240,7 @@ public class AlarmService extends Service {
         ringingId = id;
         startTone(info);
         scheduleAutoStop(info);
+        ringingNow = true;
         return START_NOT_STICKY;
     }
 
@@ -405,6 +422,7 @@ public class AlarmService extends Service {
         if (autoStop != null) handler.removeCallbacks(autoStop);
         autoStop = null;
         stopTone();
+        ringingNow = false;
         if (ringingId >= 0) AlarmReceiver.cancelNotification(this, ringingId);
         ringingId = -1;
         super.onDestroy();

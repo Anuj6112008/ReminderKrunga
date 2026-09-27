@@ -37,6 +37,10 @@ const PERMISSIONS = [
   'android.permission.RECEIVE_BOOT_COMPLETED',
   'android.permission.VIBRATE',
   'android.permission.WAKE_LOCK',
+  // Lets the app ask the user to exempt it from battery optimisation - the
+  // one user toggle that allows the alarm to ring from the background on
+  // phones with aggressive battery managers.
+  'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
 ];
 
 function fail(msg) {

@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.media.AudioAttributes;
+import android.media.MediaPlayer;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -33,6 +35,8 @@ public class AlarmActivity extends Activity {
     private final Handler ticker = new Handler(Looper.getMainLooper());
     private TextView status;
     private Runnable tick;
+    private MediaPlayer localPlayer;
+    private int silentTicks = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -212,6 +216,19 @@ public class AlarmActivity extends Activity {
                     long secs = (left % 60000) / 1000;
                     status.setText(String.format("Ringing… stops in %d:%02d", mins, secs));
                 }
+
+                // The service normally owns the audio. If Android refused to
+                // start it and it has not come up within a couple of seconds,
+                // ring from here so this screen is never a silent button
+                // board. Hand back to the service the moment it appears.
+                if (AlarmService.isRinging()) {
+                    silentTicks = 0;
+                    stopLocal();
+                } else if (info.sound) {
+                    silentTicks++;
+                    if (silentTicks >= 2) startLocal();
+                }
+
                 if (left <= 0) {
                     finish();
                     return;
@@ -220,6 +237,42 @@ public class AlarmActivity extends Activity {
             }
         };
         ticker.post(tick);
+    }
+
+    /**
+     * Looping tone used only while AlarmService has not started. The moment
+     * the service reports it is ringing this is released, so the alarm never
+     * sounds twice.
+     */
+    private void startLocal() {
+        if (localPlayer != null) return;
+        try {
+            int res = getResources()
+                    .getIdentifier("reminder_tone", "raw", getPackageName());
+            if (res != 0) {
+                localPlayer = MediaPlayer.create(this, res);
+            }
+            if (localPlayer == null) return;
+
+            localPlayer.setAudioAttributes(new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build());
+            localPlayer.setLooping(true);
+            localPlayer.start();
+        } catch (Exception e) {
+            localPlayer = null;
+        }
+    }
+
+    private void stopLocal() {
+        if (localPlayer == null) return;
+        try {
+            if (localPlayer.isPlaying()) localPlayer.stop();
+            localPlayer.release();
+        } catch (Exception ignored) {
+        }
+        localPlayer = null;
     }
 
     private void send(String action) {
@@ -251,6 +304,7 @@ public class AlarmActivity extends Activity {
     @Override
     protected void onDestroy() {
         ticker.removeCallbacksAndMessages(null);
+        stopLocal();
         super.onDestroy();
     }
 

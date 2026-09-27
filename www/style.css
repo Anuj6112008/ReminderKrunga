@@ -770,6 +770,67 @@ textarea {
   border-top-color: var(--success);
 }
 
+/* ============ ALARM HEALTH BANNER ============ */
+.perm-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 20px 16px;
+  padding: 12px 14px;
+  background: var(--card);
+  border-radius: 14px;
+  border-left: 4px solid var(--warning);
+  box-shadow: var(--shadow);
+}
+
+.perm-banner[hidden] {
+  display: none;
+}
+
+.perm-icon {
+  font-size: 1.15rem;
+  flex-shrink: 0;
+}
+
+.perm-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.perm-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.perm-text {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+
+.perm-fix {
+  border: 0;
+  background: var(--warning);
+  color: #241701;
+  font-weight: 700;
+  font-size: 0.78rem;
+  padding: 8px 13px;
+  border-radius: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.perm-dismiss {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 4px;
+  flex-shrink: 0;
+}
+
 .insight-label {
   font-size: 0.68rem;
   font-weight: 700;

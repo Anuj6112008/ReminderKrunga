@@ -1,8 +1,12 @@
 package com.reminderkrunga.app.alarm;
 
+import android.app.NotificationManager;
+import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.util.Log;
 
@@ -158,6 +162,188 @@ public class AlarmClockPlugin extends Plugin {
         JSObject out = new JSObject();
         out.put("ok", true);
         call.resolve(out);
+    }
+
+    /**
+     * Whether Android will still show the alarm full screen over the lock
+     * screen. When this is false the system silently downgrades us to a
+     * plain heads-up notification, which looks like "the alarm never came
+     * up" - so JS has to ask and send the user to the toggle.
+     */
+    @PluginMethod
+    public void canUseFullScreenIntent(PluginCall call) {
+        JSObject out = new JSObject();
+        out.put("ok", canUseFullScreenIntentNow());
+        out.put("checkable", Build.VERSION.SDK_INT >= Build.VERSION_CODES.S);
+        call.resolve(out);
+    }
+
+    @PluginMethod
+    public void openFullScreenIntentSettings(PluginCall call) {
+        boolean opened = false;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                Intent intent = new Intent(
+                        Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                        Uri.parse("package:" + getContext().getPackageName()));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(intent);
+                opened = true;
+            } catch (Exception e) {
+                Log.w(TAG, "full screen settings failed: " + e.getMessage());
+            }
+        }
+        if (!opened) {
+            opened = openNotificationSettings();
+        }
+
+        if (opened) call.resolve(new JSObject().put("ok", true));
+        else call.reject("Could not open settings");
+    }
+
+    /**
+     * True when the user has exempted us from battery optimisation. This
+     * exemption is what lets the alarm ring from the background on phones
+     * with aggressive battery managers.
+     */
+    @PluginMethod
+    public void isIgnoringBatteryOptimizations(PluginCall call) {
+        call.resolve(new JSObject().put("ok", isIgnoringBatteryOptimizationsNow()));
+    }
+
+    /**
+     * Deep link to the "Alarms & reminders" toggle. Without exact alarms the
+     * ring moment drifts - and losing that exemption also loses the right to
+     * start the ringing service from the background.
+     */
+    @PluginMethod
+    public void openExactAlarmSettings(PluginCall call) {
+        boolean opened = false;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                Intent intent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                        Uri.parse("package:" + getContext().getPackageName()));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(intent);
+                opened = true;
+            } catch (Exception e) {
+                Log.w(TAG, "exact alarm settings failed: " + e.getMessage());
+            }
+        }
+        if (!opened) opened = openAppDetailsPage();
+
+        if (opened) call.resolve(new JSObject().put("ok", true));
+        else call.reject("Could not open settings");
+    }
+
+    /** Shows the system "let this app stop battery optimisation" dialog. */
+    @PluginMethod
+    public void openBatterySettings(PluginCall call) {
+        boolean opened = false;
+        try {
+            Intent intent = new Intent(
+                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:" + getContext().getPackageName()));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(intent);
+            opened = true;
+        } catch (Exception e) {
+            Log.w(TAG, "battery dialog failed: " + e.getMessage());
+        }
+        if (!opened) {
+            try {
+                Intent intent = new Intent(
+                        Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(intent);
+                opened = true;
+            } catch (Exception e) {
+                Log.w(TAG, "battery settings failed: " + e.getMessage());
+            }
+        }
+
+        if (opened) call.resolve(new JSObject().put("ok", true));
+        else call.reject("Could not open battery settings");
+    }
+
+    /** Exact-alarm + full screen state in one round trip for the UI banner. */
+    @PluginMethod
+    public void getAlarmPermissions(PluginCall call) {
+        JSObject out = new JSObject();
+        out.put("exact", AlarmScheduler.canScheduleExact(getContext()));
+        out.put("fullScreen", canUseFullScreenIntentNow());
+        out.put("battery", isIgnoringBatteryOptimizationsNow());
+        out.put("notifications", notificationsAllowed());
+        out.put("apiLevel", Build.VERSION.SDK_INT);
+        call.resolve(out);
+    }
+
+    private boolean canUseFullScreenIntentNow() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                NotificationManager nm = (NotificationManager)
+                        getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+                return nm == null || nm.canUseFullScreenIntent();
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                return getContext().checkSelfPermission(
+                        "android.permission.USE_FULL_SCREEN_INTENT")
+                        == PackageManager.PERMISSION_GRANTED;
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "full screen check failed: " + t.getMessage());
+        }
+        return true;
+    }
+
+    private boolean isIgnoringBatteryOptimizationsNow() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PowerManager pm = (PowerManager)
+                        getContext().getSystemService(Context.POWER_SERVICE);
+                return pm != null
+                        && pm.isIgnoringBatteryOptimizations(getContext().getPackageName());
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "battery check failed: " + t.getMessage());
+        }
+        return true;
+    }
+
+    private boolean notificationsAllowed() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true;
+        try {
+            return getContext().checkSelfPermission("android.permission.POST_NOTIFICATIONS")
+                    == PackageManager.PERMISSION_GRANTED;
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    private boolean openNotificationSettings() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, getContext().getPackageName());
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(intent);
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "notification settings failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    private boolean openAppDetailsPage() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + getContext().getPackageName()));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(intent);
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "app settings failed: " + e.getMessage());
+            return false;
+        }
     }
 
     /**

@@ -85,6 +85,18 @@
     </div>
   </section>
 
+  <!-- Alarm health: appears only when a system toggle would stop the alarm
+       from ringing over the lock screen, with a one-tap way to fix it -->
+  <div class="perm-banner" id="permBanner" hidden>
+    <div class="perm-icon">⚠️</div>
+    <div class="perm-body">
+      <div class="perm-title" id="permTitle">Alarm needs attention</div>
+      <div class="perm-text" id="permText"></div>
+    </div>
+    <button class="perm-fix" id="permFix" type="button">Fix</button>
+    <button class="perm-dismiss" id="permDismiss" type="button" aria-label="Dismiss">✕</button>
+  </div>
+
   <!-- Main Content -->
   <main class="content" id="mainContent">
     <ul id="remindersList" class="reminders-list"></ul>

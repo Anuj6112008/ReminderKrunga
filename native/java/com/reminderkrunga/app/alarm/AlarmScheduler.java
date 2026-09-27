@@ -117,6 +117,41 @@ public final class AlarmScheduler {
         pi.cancel();
     }
 
+    private static final java.util.Set<Integer> RETRIED =
+            java.util.Collections.synchronizedSet(new java.util.HashSet<Integer>());
+
+    /**
+     * Asks Android to deliver the start once more a moment later.
+     *
+     * Firing an exact alarm is one of the exemptions from the background
+     * foreground-service restrictions, so a second firing is often the
+     * difference between "silent" and "ringing" when the first attempt was
+     * refused. Bounded to one retry per alarm id.
+     */
+    public static void scheduleStartRetry(Context context, int id) {
+        if (id < 0 || !RETRIED.add(id)) return;
+        try {
+            AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+            if (am == null) return;
+
+            Intent intent = new Intent(context, AlarmReceiver.class);
+            intent.setAction(AlarmReceiver.ACTION_RETRY);
+            intent.putExtra(AlarmReceiver.EXTRA_ID, id);
+            PendingIntent pi = PendingIntent.getBroadcast(
+                    context, SHOW_REQUEST_BASE + 500000 + id, intent, pendingFlags());
+
+            long at = System.currentTimeMillis() + 1500L;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
+            } else {
+                am.setExact(AlarmManager.RTC_WAKEUP, at, pi);
+            }
+            Log.i(TAG, "service start retry scheduled for alarm " + id);
+        } catch (Exception e) {
+            Log.w(TAG, "retry could not be scheduled: " + e.getMessage());
+        }
+    }
+
     /** First occurrence of {@code repeat} strictly after {@code after}, from base. */
     public static long nextOccurrence(long base, String repeat, long after) {
         if (base <= 0 || repeat == null || "none".equals(repeat)) return -1L;

@@ -661,6 +661,85 @@ async function nativeStop(id) {
   } catch (e) { /* ignore */ }
 }
 
+/* ---------- why the lock screen alarm might not ring ------------------- */
+
+async function nativeAlarmPermissions() {
+  if (!NativeAlarm || typeof NativeAlarm.getAlarmPermissions !== 'function') return null;
+  try {
+    return await NativeAlarm.getAlarmPermissions();
+  } catch (e) {
+    return null;
+  }
+}
+
+async function openAlarmFix(kind) {
+  if (!NativeAlarm) return;
+  try {
+    if (kind === 'notifications') {
+      if (LocalNotifications && LocalNotifications.requestPermissions) {
+        await LocalNotifications.requestPermissions();
+      }
+      await NativeAlarm.openAppSettings();
+    } else if (kind === 'fullScreen') {
+      await NativeAlarm.openFullScreenIntentSettings();
+    } else if (kind === 'exact') {
+      await NativeAlarm.openExactAlarmSettings();
+    } else if (kind === 'battery') {
+      await NativeAlarm.openBatterySettings();
+    }
+  } catch (e) {
+    console.warn('Could not open the alarm settings screen:', e);
+  }
+}
+
+// Checked in order: the first broken toggle is the one that explains why the
+// alarm never took over the lock screen, so it is the one worth surfacing.
+const ALARM_FIX_ISSUES = [
+  {
+    key: 'notifications',
+    bad: (p) => p.notifications === false,
+    title: 'Notifications are blocked',
+    text: 'Android will not show the alarm at all until notifications are allowed.'
+  },
+  {
+    key: 'fullScreen',
+    bad: (p) => p.fullScreen === false,
+    title: 'Full screen alarm is off',
+    text: 'The alarm would only look like a normal notification instead of taking over the lock screen like a call.'
+  },
+  {
+    key: 'exact',
+    bad: (p) => p.exact === false,
+    title: 'Exact alarms are off',
+    text: 'The alarm may ring late or drift. Allow "Alarms & reminders" for this app.'
+  },
+  {
+    key: 'battery',
+    bad: (p) => p.battery === false,
+    title: 'Battery optimisation is on',
+    text: 'Android may silence the alarm when the screen is off. Set this app to Unrestricted.'
+  }
+];
+
+async function refreshAlarmHealth() {
+  const banner = $('permBanner');
+  if (!banner || !NativeAlarm) return;
+
+  const p = await nativeAlarmPermissions();
+  if (!p) return;
+
+  const issue = ALARM_FIX_ISSUES.find(i => i.bad(p));
+  if (!issue) {
+    banner.hidden = true;
+    return;
+  }
+
+  $('permTitle').textContent = issue.title;
+  $('permText').textContent = issue.text;
+  banner.hidden = false;
+  $('permFix').onclick = () => openAlarmFix(issue.key);
+}
+
 function ringGraceMs() {
   return settings.ringMinutes * 60000 + 60000;
 }
@@ -1912,6 +1991,14 @@ backupFile.addEventListener('change', async (e) => {
   // an alarm that is still ringing) before checking what is due now.
   await syncNativeState();
 
+  // Surface any system toggle that would stop the alarm taking over the lock
+  // screen - re-checked every time the app comes back to the foreground.
+  const dismissBtn = $('permDismiss');
+  if (dismissBtn) {
+    dismissBtn.onclick = () => { $('permBanner').hidden = true; };
+  }
+  refreshAlarmHealth();
+
   // Catch anything that came due while the app was closed / starting up,
   // then heal any native schedule that got lost (e.g. app killed mid-alarm).
   alarmTick();
@@ -1931,6 +2018,7 @@ backupFile.addEventListener('change', async (e) => {
     if (document.visibilityState === 'visible') {
       render();
       await syncNativeState();
+      refreshAlarmHealth();
       alarmTick();
 
       // Screen lock releases the wake lock on its own — grab it back

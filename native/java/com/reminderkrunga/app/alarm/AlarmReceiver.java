@@ -23,6 +23,8 @@ public class AlarmReceiver extends BroadcastReceiver {
     public static final String ACTION_STOP = PKG + "STOP";
     public static final String ACTION_SNOOZE = PKG + "SNOOZE";
     public static final String ACTION_DONE = PKG + "DONE";
+    /** Second attempt at starting the ringing service, see AlarmScheduler. */
+    public static final String ACTION_RETRY = PKG + "RETRY_START";
 
     public static final String EXTRA_ID = "alarmId";
 
@@ -41,6 +43,8 @@ public class AlarmReceiver extends BroadcastReceiver {
 
         if (ACTION_FIRE.equals(action)) {
             fire(context, store, id);
+        } else if (ACTION_RETRY.equals(action)) {
+            retryStart(context, store, id);
         } else if (ACTION_STOP.equals(action)) {
             dismiss(context, store, id, false);
         } else if (ACTION_DONE.equals(action)) {
@@ -113,6 +117,27 @@ public class AlarmReceiver extends BroadcastReceiver {
             // from the foreground where it is always allowed.
             Log.w(TAG, "Foreground service start refused: " + e.getMessage());
         }
+    }
+
+    /**
+     * Second attempt at starting the ring, fired by AlarmScheduler after the
+     * first start was refused. It reads the RINGING entry only: by now a
+     * repeating alarm has already advanced PENDING to its next occurrence, so
+     * going through fire() again would ring for the wrong time.
+     */
+    private void retryStart(Context context, AlarmStore store, int id) {
+        JSONObject raw = store.get(AlarmStoreSection.RINGING, String.valueOf(id));
+        if (raw == null) return;
+
+        AlarmStore.AlarmInfo info = AlarmStore.AlarmInfo.fromJson(raw);
+        if (info == null) return;
+
+        if (System.currentTimeMillis() > info.until && info.until > 0) {
+            return;   // ring window already over, nothing to restart
+        }
+
+        Log.i(TAG, "retrying the service start for alarm " + id);
+        AlarmService.startRing(context, info);
     }
 
     private void dismiss(Context context, AlarmStore store, int id, boolean done) {
