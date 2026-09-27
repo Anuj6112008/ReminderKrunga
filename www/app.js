@@ -626,10 +626,13 @@ async function nativeGetState() {
  */
 async function nativeSchedule(r, atMs) {
   if (!NativeAlarm || !r || r.done || !Number.isFinite(atMs)) return null;
-  if (atMs < Date.now() - ringGraceMs()) return null;
+  if (atMs < Date.now() - ringGraceMs()) {
+    diag('js', `skip stale id=${r.id} (at=${atMs})`);
+    return null;
+  }
 
   try {
-    return await NativeAlarm.schedule({
+    const res = await NativeAlarm.schedule({
       id: r.id,
       at: atMs,
       base: new Date(r.time).getTime(),
@@ -641,8 +644,11 @@ async function nativeSchedule(r, atMs) {
       sound: settings.alarmSound,
       vibrate: settings.vibration
     });
+    diag('js', `armed id=${r.id} at=${atMs} exact=${res ? !!res.exact : '?'}`);
+    return res;
   } catch (e) {
     console.warn('Native alarm schedule failed:', e);
+    diag('js', `schedule ERROR id=${r.id}: ${e.message || e}`);
     return null;
   }
 }
@@ -651,6 +657,7 @@ async function nativeCancel(id) {
   if (!NativeAlarm || id == null) return;
   try {
     await NativeAlarm.cancel({ id });
+    diag('js', `cancelled id=${id}`);
   } catch (e) { /* ignore */ }
 }
 
@@ -742,6 +749,187 @@ async function refreshAlarmHealth() {
 
 function ringGraceMs() {
   return settings.ringMinutes * 60000 + 60000;
+}
+
+/* ---------- diagnostics: what the native layer actually did -------------- */
+
+const localDiag = [];
+const LOCAL_DIAG_MAX = 30;
+
+/** Note a decision made on this side of the bridge. */
+function diag(tag, message) {
+  try {
+    localDiag.push({ t: Date.now(), tag, m: String(message) });
+    while (localDiag.length > LOCAL_DIAG_MAX) localDiag.shift();
+    console.log(`[alarm ${tag}] ${message}`);
+  } catch (e) { /* ignore */ }
+}
+
+function fmtTime(ms) {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+}
+
+function fmtEvent(e) {
+  const n = e && e.n > 1 ? ` ×${e.n}` : '';
+  return `${fmtTime(e.t)}  [${String(e.tag || '?').padEnd(9)}] ${e.m}${n}`;
+}
+
+/**
+ * One line saying which link of the chain is broken, so the log below it does
+ * not have to be interpreted by eye.
+ */
+function diagVerdict(st, perms, jsDue, nativeArmed) {
+  if (!st) return '✗ native bridge returned nothing - Android side not reachable';
+
+  // Newest first: events are stored in first-seen order, but each slot keeps
+  // being refreshed as it repeats, so time is the only trustworthy order.
+  const log = (Array.isArray(st.log) ? st.log : [])
+    .slice()
+    .sort((a, b) => (a && a.t || 0) - (b && b.t || 0))
+    .reverse();
+  const last = (tag) => log.find(e => e && e.tag === tag);
+
+  const missingPerm = perms
+    && [['notifications', perms.notifications], ['fullScreen', perms.fullScreen],
+      ['exact', perms.exact], ['battery', perms.battery]]
+      .filter(([, v]) => v === false).map(([k]) => k);
+
+  const fire = last('fire');
+  if (fire && /UNKNOWN|SKIPPED/.test(fire.m || '')) {
+    return `✗ alarm fired but was dropped: ${fire.m}`;
+  }
+
+  if (!fire && nativeArmed > 0) {
+    return '✗ armed but NEVER FIRED - Android kept the alarm from ringing (battery killer / force stop)';
+  }
+
+  if (fire) {
+    const refused = last('fgs');
+    if (refused && /REFUSED/.test(refused.m || '')) {
+      return `⚠ fired, service start refused - fallback ring took over (${refused.m})`;
+    }
+    return '✓ alarm fired and reached the ringing path - check the events below';
+  }
+
+  if (jsDue > 0 && nativeArmed === 0) {
+    return '✗ no native alarm armed at all - scheduling never reached Android';
+  }
+
+  if (missingPerm.length) {
+    return `✗ system toggles off: ${missingPerm.join(', ')}`;
+  }
+
+  if (jsDue === 0) return '✓ no alarm is due right now, and nothing is broken';
+
+  return '? armed, waiting - no alarm has been attempted yet';
+}
+
+/**
+ * Status card: permissions, whether Android actually holds an alarm, and the
+ * last events from both sides of the bridge.
+ */
+async function renderDiagnostics() {
+  const card = $('diagCard');
+  if (!card) return;
+  if (!NativeAlarm) { card.hidden = true; return; }
+  card.hidden = false;
+
+  const logEl = $('diagLog');
+  if (!logEl) return;
+
+  try {
+    const [st, perms] = await Promise.all([nativeGetState(), nativeAlarmPermissions()]);
+
+  const nativeArmed = st ? Object.keys(st.pending || {}).length : 0;
+  const nativeSnooze = st ? Object.keys(st.snooze || {}).length : 0;
+  const nativeRinging = st ? Object.keys(st.ringing || {}).length : 0;
+
+  let jsDue = 0;
+  let nextJs = 0;
+  for (const r of reminders) {
+    if (r.done) continue;
+    const t = pendingFireMs(r);
+    if (Number.isFinite(t) && t >= Date.now() - ringGraceMs()) {
+      jsDue++;
+      if (!nextJs || t < nextJs) nextJs = t;
+    }
+  }
+
+  const nativeEvents = (st && Array.isArray(st.log)) ? st.log : [];
+  const events = nativeEvents.concat(localDiag).sort((a, b) => (a.t || 0) - (b.t || 0));
+
+  const banner = $('permBanner');
+  const bannerOpen = banner && !banner.hidden;
+
+  const head = [
+    `Verdict: ${diagVerdict(st, perms, jsDue, nativeArmed)}`,
+    perms
+      ? `Permissions: notifications=${perms.notifications} fullScreen=${perms.fullScreen} exact=${perms.exact} battery=${perms.battery} (API ${perms.apiLevel})`
+      : 'Permissions: unavailable',
+    `Native: armed=${nativeArmed} snooze=${nativeSnooze} ringing=${nativeRinging} | JS due=${jsDue}`
+      + (nextJs ? ` next=${new Date(nextJs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''),
+    `Banner showing: ${bannerOpen ? 'yes' : 'no'} | bridge: ${NativeAlarm ? 'present' : 'missing'}`,
+    ''
+  ];
+
+  const tail = events.length ? events.map(fmtEvent) : ['(no events yet)'];
+
+  logEl.textContent = head.concat(tail).join('\n');
+
+  const badge = $('diagBadge');
+  if (badge) badge.textContent = nativeArmingLabel(st);
+  } catch (e) {
+    // Diagnostics must never take the app down with it.
+    logEl.textContent = `diagnostics failed: ${e.message || e}`;
+  }
+}
+
+function nativeArmingLabel(st) {
+  if (!st) return 'no bridge';
+  const n = Object.keys(st.pending || {}).length;
+  if (Object.keys(st.ringing || {}).length) return 'ringing';
+  return n ? `${n} armed` : 'none armed';
+}
+
+/**
+ * Re-book only the alarms Android lost. Quiet by design: a missing schedule
+ * is the event worth logging, so this never floods the diagnostic log with
+ * entries that would push the real evidence out.
+ */
+async function healNativeSchedules() {
+  if (!NativeAlarm || alarmState) return;
+
+  const st = await nativeGetState();
+  if (!st) return;
+  const held = Object.assign({}, st.pending || {}, st.snooze || {});
+
+  for (const r of reminders) {
+    if (r.done) continue;
+    const at = pendingFireMs(r);
+    if (!Number.isFinite(at) || at < Date.now() - ringGraceMs()) continue;
+    if (held[String(r.id)]) continue;          // Android still has it
+    diag('heal', `native schedule missing for id=${r.id}, re-booking at=${at}`);
+    try { await nativeSchedule(r, at); } catch (e) { /* ignore */ }
+  }
+}
+
+function setupDiagnostics() {
+  const copy = $('diagCopy');
+  const refresh = $('diagRefresh');
+  if (copy) {
+    copy.onclick = async () => {
+      try {
+        await renderDiagnostics();
+        await navigator.clipboard.writeText($('diagLog').textContent || '');
+        copy.textContent = 'Copied ✓';
+        setTimeout(() => { copy.textContent = 'Copy log'; }, 1600);
+      } catch (e) {
+        copy.textContent = 'Select and copy manually';
+      }
+    };
+  }
+  if (refresh) refresh.onclick = () => renderDiagnostics();
 }
 
 function getReminder(id) {
@@ -840,6 +1028,7 @@ function updateAlarmStatus() {
  */
 async function armRing(r, fireMs) {
   if (!NativeAlarm) {
+    diag('ring', `web only (no native bridge) id=${r.id}`);
     startRinging();
     return;
   }
@@ -848,11 +1037,14 @@ async function armRing(r, fireMs) {
     const st = await nativeGetState();
     if (st && st.ringing && st.ringing[String(r.id)]) {
       nativeRingSeen = true;
+      diag('ring', `native already ringing id=${r.id}`);
       return;                       // Android is already ringing for us
     }
     if (await nativeSchedule(r, fireMs)) return;   // past time = ring now
+    diag('ring', `native did not take it, WebView will ring id=${r.id}`);
   } catch (e) {
     console.warn('Falling back to WebView ring:', e);
+    diag('ring', `bridge error id=${r.id}: ${e.message || e}`);
   }
 
   startRinging();
@@ -968,6 +1160,7 @@ async function fireAlarm(r, fireMs) {
 
   r.lastRingKey = String(fireMs);
   saveData();
+  diag('js', `fireAlarm id=${r.id} fireMs=${fireMs} (jsRinging next)`);
 
   // The full screen alarm takes over — silence the native repeat alerts.
   cancelReminderNotifications(r.id);
@@ -1999,12 +2192,18 @@ backupFile.addEventListener('change', async (e) => {
   }
   refreshAlarmHealth();
 
+  // Status card: what Android is actually doing with our alarms.
+  setupDiagnostics();
+  renderDiagnostics();
+
   // Catch anything that came due while the app was closed / starting up,
   // then heal any native schedule that got lost (e.g. app killed mid-alarm).
   alarmTick();
   if (!alarmState) {
     try { await rescheduleAll(); } catch (e) { /* ignore */ }
   }
+  await healNativeSchedules();
+  renderDiagnostics();
 
   // The alarm checks every second so it rings on the exact minute
   setInterval(alarmTick, 1000);
@@ -2019,6 +2218,12 @@ backupFile.addEventListener('change', async (e) => {
       render();
       await syncNativeState();
       refreshAlarmHealth();
+
+      // Watchdog: if Android dropped a schedule while the app was closed,
+      // book it again now - this is the only moment we can do that quietly.
+      await healNativeSchedules();
+      renderDiagnostics();
+
       alarmTick();
 
       // Screen lock releases the wake lock on its own — grab it back

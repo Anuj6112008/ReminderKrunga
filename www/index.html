@@ -97,6 +97,23 @@
     <button class="perm-dismiss" id="permDismiss" type="button" aria-label="Dismiss">✕</button>
   </div>
 
+  <!-- Alarm diagnostics: a plain-English verdict plus the raw event trail
+       from both sides of the bridge, so a lock screen problem can be read
+       off the screen instead of guessed at. Collapsed by default. -->
+  <details class="diag-card" id="diagCard" hidden>
+    <summary class="diag-summary">
+      <span>🔍 Alarm diagnostics</span>
+      <span class="diag-badge" id="diagBadge">…</span>
+    </summary>
+    <div class="diag-body">
+      <pre class="diag-log" id="diagLog">Loading…</pre>
+      <div class="diag-actions">
+        <button class="diag-btn" id="diagCopy" type="button">Copy log</button>
+        <button class="diag-btn" id="diagRefresh" type="button">Refresh</button>
+      </div>
+    </div>
+  </details>
+
   <!-- Main Content -->
   <main class="content" id="mainContent">
     <ul id="remindersList" class="reminders-list"></ul>

@@ -3,6 +3,7 @@ package com.reminderkrunga.app.alarm;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -93,6 +94,80 @@ public class AlarmStore {
         } catch (JSONException ignored) {
         }
         flush();
+    }
+
+    /* ------------------------------------------------------------ event log */
+
+    private static final String LOG_KEY = "eventlog";
+    private static final int LOG_MAX = 60;
+
+    /**
+     * One durable diagnostic event.
+     *
+     * This is the point of the whole diagnostics build: it survives the
+     * process being killed, so when an alarm misbehaves the log says whether
+     * it was ever armed, whether the receiver ran, and whether Android
+     * refused the service start - instead of us guessing.
+     *
+     * Events are kept one slot per (type, alarm): re-arming the same
+     * reminder on every app open must never flush the real evidence out.
+     */
+    public void log(String tag, String message) {
+        try {
+            long now = System.currentTimeMillis();
+            JSONArray arr = readLog();
+            String id = extractId(message);
+
+            int reuse = -1;
+            for (int i = arr.length() - 1; i >= 0; i--) {
+                JSONObject seen = arr.optJSONObject(i);
+                if (seen == null) continue;
+                if (!tag.equals(seen.optString("tag"))) continue;
+                if (!id.equals(extractId(seen.optString("m")))) continue;
+                reuse = i;
+                break;
+            }
+
+            JSONObject entry;
+            if (reuse >= 0) {
+                entry = arr.optJSONObject(reuse);
+                entry.put("t", now);
+                entry.put("m", message);
+                entry.put("n", entry.optInt("n", 1) + 1);
+            } else {
+                entry = new JSONObject();
+                entry.put("t", now);
+                entry.put("tag", tag);
+                entry.put("m", message);
+                entry.put("n", 1);
+                arr.put(entry);
+                while (arr.length() > LOG_MAX) {
+                    arr.remove(0);
+                }
+            }
+
+            prefs.edit().putString(LOG_KEY, arr.toString()).apply();
+        } catch (JSONException ignored) {
+        }
+    }
+
+    /** "id=12 at=..." -&gt; "12"; a message without an id -&gt; "". */
+    private static String extractId(String message) {
+        if (message == null) return "";
+        int at = message.indexOf("id=");
+        if (at < 0) return "";
+        int start = at + 3;
+        int end = start;
+        while (end < message.length() && Character.isDigit(message.charAt(end))) end++;
+        return end > start ? message.substring(start, end) : "";
+    }
+
+    public JSONArray readLog() {
+        try {
+            return new JSONArray(prefs.getString(LOG_KEY, "[]"));
+        } catch (JSONException e) {
+            return new JSONArray();
+        }
     }
 
     /** Everything we need to fire, ring and re-arm one alarm. */

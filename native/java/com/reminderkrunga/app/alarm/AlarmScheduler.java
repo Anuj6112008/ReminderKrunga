@@ -51,14 +51,26 @@ public final class AlarmScheduler {
         return am != null && am.canScheduleExactAlarms();
     }
 
+    /** Diagnostic breadcrumb: was this alarm booked at all, and how. */
+    private static void note(Context context, String message) {
+        try {
+            AlarmStore.getInstance(context).log("arm", message);
+        } catch (Exception ignored) {
+        }
+    }
+
     /** Returns true when the alarm was booked exactly. */
     public static boolean schedule(Context context, AlarmStore.AlarmInfo info) {
         if (info == null || info.id < 0 || info.at <= 0) return false;
 
         AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-        if (am == null) return false;
+        if (am == null) {
+            note(context, "id=" + info.id + " FAILED no AlarmManager");
+            return false;
+        }
 
         long at = Math.max(info.at, System.currentTimeMillis());
+        long delay = at - System.currentTimeMillis();
         PendingIntent operation = fireIntent(context, info.id);
 
         // 1. Alarm clock API
@@ -69,11 +81,15 @@ public final class AlarmScheduler {
                     context, SHOW_REQUEST_BASE + info.id, show, pendingFlags());
             am.setAlarmClock(new AlarmManager.AlarmClockInfo(at, showIntent), operation);
             Log.d(TAG, "setAlarmClock id=" + info.id);
+            note(context, "id=" + info.id + " at=" + at + " inMs=" + delay
+                    + " via=setAlarmClock exact=yes");
             return true;
         } catch (SecurityException e) {
             Log.w(TAG, "setAlarmClock denied, falling back: " + e.getMessage());
+            note(context, "id=" + info.id + " setAlarmClock DENIED: " + e.getMessage());
         } catch (Exception e) {
             Log.w(TAG, "setAlarmClock failed: " + e.getMessage());
+            note(context, "id=" + info.id + " setAlarmClock failed: " + e.getMessage());
         }
 
         // 2. Exact, allow while idle
@@ -85,12 +101,18 @@ public final class AlarmScheduler {
                     am.setExact(AlarmManager.RTC_WAKEUP, at, operation);
                 }
                 Log.d(TAG, "setExactAndAllowWhileIdle id=" + info.id);
+                note(context, "id=" + info.id + " at=" + at + " inMs=" + delay
+                        + " via=setExactAndAllowWhileIdle exact=yes");
                 return true;
             } catch (SecurityException e) {
                 Log.w(TAG, "exact alarm denied, falling back: " + e.getMessage());
+                note(context, "id=" + info.id + " exact DENIED: " + e.getMessage());
             } catch (Exception e) {
                 Log.w(TAG, "exact alarm failed: " + e.getMessage());
+                note(context, "id=" + info.id + " exact failed: " + e.getMessage());
             }
+        } else {
+            note(context, "id=" + info.id + " exact permission NOT granted");
         }
 
         // 3. Inexact but still wakes the device
@@ -101,9 +123,12 @@ public final class AlarmScheduler {
                 am.set(AlarmManager.RTC_WAKEUP, at, operation);
             }
             Log.w(TAG, "inexact fallback id=" + info.id);
+            note(context, "id=" + info.id + " at=" + at + " inMs=" + delay
+                    + " via=inexact exact=no");
             return false;
         } catch (Exception e) {
             Log.e(TAG, "could not schedule alarm " + info.id + ": " + e.getMessage());
+            note(context, "id=" + info.id + " FAILED all paths: " + e.getMessage());
             return false;
         }
     }
@@ -115,6 +140,7 @@ public final class AlarmScheduler {
         PendingIntent pi = fireIntent(context, id);
         am.cancel(pi);
         pi.cancel();
+        note(context, "id=" + id + " cancelled");
     }
 
     private static final java.util.Set<Integer> RETRIED =
@@ -147,8 +173,10 @@ public final class AlarmScheduler {
                 am.setExact(AlarmManager.RTC_WAKEUP, at, pi);
             }
             Log.i(TAG, "service start retry scheduled for alarm " + id);
+            note(context, "id=" + id + " start retry armed");
         } catch (Exception e) {
             Log.w(TAG, "retry could not be scheduled: " + e.getMessage());
+            note(context, "id=" + id + " start retry FAILED: " + e.getMessage());
         }
     }
 

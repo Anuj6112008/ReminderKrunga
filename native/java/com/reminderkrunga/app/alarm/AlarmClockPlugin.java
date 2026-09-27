@@ -61,6 +61,8 @@ public class AlarmClockPlugin extends Plugin {
 
         AlarmStore store = AlarmStore.getInstance(getContext());
         store.put(PENDING, String.valueOf(info.id), info.toJson());
+        store.log("js", "schedule id=" + info.id + " at=" + info.at
+                + " repeat=" + info.repeat);
 
         boolean exact = AlarmScheduler.schedule(getContext(), info);
 
@@ -82,6 +84,7 @@ public class AlarmClockPlugin extends Plugin {
         AlarmStore store = AlarmStore.getInstance(getContext());
         store.remove(PENDING, String.valueOf(id));
         store.remove(SNOOZE, String.valueOf(id));
+        store.log("js", "cancel id=" + id);
         AlarmScheduler.cancel(getContext(), id);
 
         JSObject out = new JSObject();
@@ -122,6 +125,7 @@ public class AlarmClockPlugin extends Plugin {
         out.put("pending", store.all(PENDING));
         out.put("snooze", store.all(SNOOZE));
         out.put("pendingDone", store.all(PENDING_DONE));
+        out.put("log", store.readLog());
         out.put("androidO", Build.VERSION.SDK_INT >= Build.VERSION_CODES.O);
         call.resolve(out);
     }

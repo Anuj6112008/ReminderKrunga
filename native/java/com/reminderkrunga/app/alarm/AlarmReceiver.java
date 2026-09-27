@@ -60,6 +60,7 @@ public class AlarmReceiver extends BroadcastReceiver {
         if (raw == null) raw = store.get(AlarmStoreSection.RINGING, key);
         if (raw == null) {
             Log.w(TAG, "FIRE for unknown alarm " + id);
+            store.log("fire", "id=" + id + " UNKNOWN (not in store)");
             return;
         }
 
@@ -67,6 +68,8 @@ public class AlarmReceiver extends BroadcastReceiver {
         if (info == null) return;
 
         long now = System.currentTimeMillis();
+        long age = now - info.at;
+        store.log("fire", "id=" + id + " at=" + info.at + " ageMs=" + age);
 
         // Re-arm repeating alarms before anything else so a crash mid-ring
         // still leaves the next occurrence booked.
@@ -89,8 +92,9 @@ public class AlarmReceiver extends BroadcastReceiver {
         store.remove(AlarmStoreSection.SNOOZE, key);
 
         // Phone was switched off past this one: do not blast the alarm now.
-        if (now - info.at > MISSED_GRACE_MS) {
+        if (age > MISSED_GRACE_MS) {
             Log.i(TAG, "Skipping stale alarm " + id);
+            store.log("fire", "id=" + id + " SKIPPED stale ageMin=" + (age / 60000L));
             return;
         }
 
@@ -112,10 +116,14 @@ public class AlarmReceiver extends BroadcastReceiver {
                 context.startService(service);
             }
         } catch (Exception e) {
-            // Android 12+ can refuse background FGS starts. The full screen
-            // intent will launch AlarmActivity, which starts the service again
-            // from the foreground where it is always allowed.
+            // Android 12+ can refuse background FGS starts. Two things keep the
+            // alarm usable anyway: the notification (posted above) still carries
+            // the full screen intent, and AlarmRingFallback plays the tone in
+            // this process - audio and a wakelock are not background
+            // restrictions, so the phone still rings instead of staying silent.
             Log.w(TAG, "Foreground service start refused: " + e.getMessage());
+            store.log("fgs", "id=" + id + " start REFUSED: " + e.getMessage());
+            AlarmRingFallback.start(context, info);
         }
     }
 
@@ -133,10 +141,12 @@ public class AlarmReceiver extends BroadcastReceiver {
         if (info == null) return;
 
         if (System.currentTimeMillis() > info.until && info.until > 0) {
+            store.log("retry", "id=" + id + " window over, nothing to restart");
             return;   // ring window already over, nothing to restart
         }
 
         Log.i(TAG, "retrying the service start for alarm " + id);
+        store.log("retry", "id=" + id + " retrying service start");
         AlarmService.startRing(context, info);
     }
 

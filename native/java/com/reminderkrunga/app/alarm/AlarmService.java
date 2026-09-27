@@ -69,7 +69,9 @@ public class AlarmService extends Service {
     private static volatile boolean ringingNow = false;
 
     public static boolean isRinging() {
-        return ringingNow;
+        // Either path counts: the service, or the in-process fallback Android
+        // may have handed the ringing to when it refused the service start.
+        return ringingNow || AlarmRingFallback.isRinging();
     }
 
     /* ---------------------------------------------------------- commands */
@@ -88,6 +90,11 @@ public class AlarmService extends Service {
             }
         } catch (Exception e) {
             Log.w(TAG, "startRing refused: " + e.getMessage());
+            note(context, "id=" + info.id + " startRing REFUSED: " + e.getMessage());
+            // Ring right now regardless: a wakelock plus in-process audio is
+            // not a background restriction, so the alarm cannot come up
+            // silent just because Android would not grant a service.
+            AlarmRingFallback.start(context, info);
             // Android 12+ refuses background FGS starts unless an exemption
             // applies. An exact alarm fires one again in a moment, which is
             // an exemption in its own right - so try once more shortly.
@@ -97,12 +104,20 @@ public class AlarmService extends Service {
 
     /** Stop ringing and clear the notification. Safe when nothing is running. */
     public static void stopRinging(Context context, int id) {
+        AlarmRingFallback.stop();
         try {
             context.stopService(new Intent(context.getApplicationContext(), AlarmService.class));
         } catch (Exception e) {
             Log.w(TAG, "stopService failed: " + e.getMessage());
         }
         if (id >= 0) AlarmReceiver.cancelNotification(context, id);
+    }
+
+    private static void note(Context context, String message) {
+        try {
+            AlarmStore.getInstance(context).log("ring", message);
+        } catch (Exception ignored) {
+        }
     }
 
     /* ------------------------------------------------- notification build */
@@ -116,6 +131,7 @@ public class AlarmService extends Service {
             nm.notify(notificationId(info.id), buildAlert(context, info));
         } catch (Exception e) {
             Log.w(TAG, "postNotification failed: " + e.getMessage());
+            note(context, "id=" + info.id + " notification FAILED: " + e.getMessage());
         }
     }
 
@@ -234,6 +250,10 @@ public class AlarmService extends Service {
             return START_NOT_STICKY;   // already sounding, ignore the repeat
         }
 
+        // The service owns the ringing now; drop any fallback tone so the two
+        // never play over each other.
+        AlarmRingFallback.stop();
+
         if (ringingId >= 0 && ringingId != id) {
             stopTone();
         }
@@ -241,6 +261,8 @@ public class AlarmService extends Service {
         startTone(info);
         scheduleAutoStop(info);
         ringingNow = true;
+        note(this, "id=" + id + " SERVICE ringing sound=" + info.sound
+                + " vibrate=" + info.vibrate);
         return START_NOT_STICKY;
     }
 
@@ -391,6 +413,7 @@ public class AlarmService extends Service {
         autoStop = () -> {
             Log.i(TAG, "auto stop alarm " + id);
             AlarmStore store = AlarmStore.getInstance(getApplicationContext());
+            store.log("ring", "id=" + id + " auto stopped after ring window");
             store.remove(AlarmReceiver.AlarmStoreSection.RINGING, String.valueOf(id));
             stopRinging(getApplicationContext(), id);
         };

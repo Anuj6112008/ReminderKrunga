@@ -88,6 +88,25 @@ never collide:
 | Snooze | `95000000 + id` | the "ring again" alert after you press Snooze |
 | Chain | `1000000 + id * 100 + slot` | the repeat alerts while a reminder is unanswered |
 
+## 🔍 Alarm diagnostics
+
+The app has a collapsible **Alarm diagnostics** card right under the header. It prints a one-line
+verdict — what specifically is broken — plus permissions, what Android is still holding, and the
+last events from both sides of the bridge:
+
+| Event | Meaning |
+|---|---|
+| `arm … via=setAlarmClock` | the alarm was booked (exact) |
+| `fire … ageMs=…` | Android actually delivered it |
+| `fire … SKIPPED stale` | it was delivered too late to ring |
+| `fire … UNKNOWN` | it fired but no longer had a reminder attached |
+| `fgs … REFUSED` | Android blocked the ringing service, so `AlarmRingFallback` took over |
+| `heal … missing` | a schedule Android had lost was re-booked on app open |
+
+Events are durable (they survive the process being killed) and kept one slot per type and alarm,
+so opening the app repeatedly never washes the evidence out. **Copy log** puts the whole thing on
+the clipboard — that is what to send when reporting that an alarm did not ring.
+
 ## 📱 Tips for your users
 
 For reminders that must never be missed, ask users to allow **Exact alarms** and turn on

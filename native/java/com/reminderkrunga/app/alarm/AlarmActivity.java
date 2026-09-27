@@ -51,6 +51,8 @@ public class AlarmActivity extends Activity {
 
         AlarmStore store = AlarmStore.getInstance(this);
         AlarmStore.AlarmInfo info = readInfo(store);
+        store.log("ui", "id=" + alarmId + " full screen opened, alreadyRinging="
+                + AlarmService.isRinging() + ", known=" + (info != null));
 
         if (info == null) {
             // Nothing is ringing any more (stopped from the notification).
