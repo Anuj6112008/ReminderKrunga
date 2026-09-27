@@ -2264,6 +2264,62 @@ backupFile.addEventListener('change', async (e) => {
   }
 });
 
+/* ============ PWA layer (hosted web app: install + service worker) ======= */
+
+function isStandalonePWA() {
+  try {
+    if (window.navigator && window.navigator.standalone === true) return true;
+    return !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+  } catch (e) { return false; }
+}
+
+function isIOSDevice() {
+  const ua = navigator.userAgent || '';
+  return /iP(hone|ad|od)/.test(ua) ||
+    (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1);
+}
+
+/**
+ * Only meaningful on the hosted copy (github.io) — the Android APK has its own
+ * native alarm layer, so we never register a service worker inside it.
+ */
+function setupPWA() {
+  try {
+    const native = !!(window.Capacitor &&
+      typeof window.Capacitor.isNativePlatform === 'function' &&
+      window.Capacitor.isNativePlatform());
+    const hosted = location.protocol === 'https:' && /(^|\.)github\.io$/.test(location.hostname);
+    if (!native && hosted && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js')
+        .then((reg) => diag('pwa', `service worker ready scope=${reg && reg.scope}`))
+        .catch((err) => diag('pwa', `service worker FAILED ${err}`));
+    }
+  } catch (e) {
+    diag('pwa', `service worker error ${e}`);
+  }
+
+  // iOS Safari cannot show an install prompt — offer instructions instead.
+  try {
+    const card = $('pwaInstallCard');
+    if (card) {
+      const dismissed = localStorage.getItem('rkInstallDismissed') === '1';
+      if (isIOSDevice() && !isStandalonePWA() && !dismissed) {
+        card.hidden = false;
+        diag('pwa', 'install hint shown (iOS Safari, not installed yet)');
+      }
+      const close = $('pwaInstallClose');
+      if (close) {
+        close.onclick = () => {
+          card.hidden = true;
+          try { localStorage.setItem('rkInstallDismissed', '1'); } catch (e) { /* ignore */ }
+        };
+      }
+    }
+  } catch (e) {
+    diag('pwa', `install hint error ${e}`);
+  }
+}
+
 /* ============ APP INIT ============ */
 
 (async function init() {
@@ -2275,6 +2331,7 @@ backupFile.addEventListener('change', async (e) => {
   await registerNotificationActionTypes();
   await loadData();
   setupNotificationListeners();
+  setupPWA();
 
   const elapsed = Date.now() - startTime;
   if (elapsed < MIN_LOADER_MS) {

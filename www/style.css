@@ -1520,3 +1520,61 @@ textarea {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ============ iOS "Add to Home Screen" helper ============ */
+.pwa-install {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 950;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 32px 12px 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  animation: installRise 0.4s ease;
+}
+
+.pwa-install[hidden] {
+  display: none;
+}
+
+.pwa-install-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.pwa-install-icon {
+  font-size: 1.35rem;
+  line-height: 1.2;
+}
+
+.pwa-install-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.pwa-install-text span {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+@keyframes installRise {
+  from { transform: translateY(16px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}

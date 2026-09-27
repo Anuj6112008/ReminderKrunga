@@ -7,6 +7,15 @@
   <title>ReminderKrunga</title>
   <link rel="icon" href="icon.png">
   <link rel="stylesheet" href="style.css">
+
+  <!-- ============ PWA (iPhone home screen + web push) ============ -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ReminderKrunga">
 </head>
 <body>
 
@@ -35,6 +44,16 @@
         <span class="dot" data-step="1"></span>
         <span class="dot" data-step="2"></span>
       </div>
+    </div>
+  </div>
+
+  <!-- ============ iOS "Add to Home Screen" helper (shown in Safari only) ============ -->
+  <div class="pwa-install" id="pwaInstallCard" hidden>
+    <button class="pwa-install-close" id="pwaInstallClose" aria-label="Dismiss">✕</button>
+    <div class="pwa-install-icon">📲</div>
+    <div class="pwa-install-text">
+      <b>ReminderKrunga ko home screen lagao</b>
+      <span>Neeche <b>Share</b> ⬆️ dabao → <b>Add to Home Screen</b> ➕ chuno. Phir ek tap me full screen khulega aur alarm notification time par aayega.</span>
     </div>
   </div>
 

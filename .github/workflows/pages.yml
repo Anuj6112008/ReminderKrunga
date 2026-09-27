@@ -1,0 +1,48 @@
+name: Deploy Web App (iPhone PWA)
+
+# The same www/ that ships inside the APK, hosted over HTTPS so iPhone Safari
+# can install it to the Home Screen and receive Web Push (no Apple account
+# needed for that - per Apple docs).
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify PWA files present
+        run: |
+          test -f www/index.html
+          test -f www/sw.js
+          test -f www/manifest.webmanifest
+          test -f www/app.js
+          echo "PWA files OK"
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: www
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
