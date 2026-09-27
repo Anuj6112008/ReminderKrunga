@@ -180,11 +180,18 @@ body {
   position: relative;
   overflow: hidden;
   border-left: 4px solid var(--primary);
-  transition: transform 0.15s;
+  transition: transform 0.15s, box-shadow 0.18s ease;
 }
 
 .reminder-card:active {
   transform: scale(0.98);
+}
+
+@media (hover: hover) {
+  .reminder-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.12);
+  }
 }
 
 .reminder-card[data-category="work"] { border-left-color: #3b82f6; }
@@ -377,10 +384,17 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 50;
-  transition: transform 0.15s;
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.2s ease;
   font-family: inherit;
   line-height: 1;
   padding-bottom: 4px;
+}
+
+@media (hover: hover) {
+  .fab:hover {
+    transform: translateY(-3px) scale(1.06);
+    box-shadow: 0 14px 32px rgba(99, 102, 241, 0.5);
+  }
 }
 
 .fab:active {
@@ -1104,98 +1118,231 @@ textarea {
   font-size: 0.78rem;
 }
 
-/* ============ FULL SCREEN ALARM ============ */
+/* ============ FULL SCREEN ALARM (incoming-call style) ============ */
 .alarm-screen {
   position: fixed;
   inset: 0;
   z-index: 300;
-  background: linear-gradient(160deg, #1e1b4b 0%, #312e81 45%, #4f46e5 100%);
+  background: radial-gradient(120% 80% at 50% 0%, #312e81 0%, #1e1b4b 46%, #0b1020 100%);
   display: none;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 32px 24px;
+  gap: 16px;
+  padding: max(28px, env(safe-area-inset-top)) 22px max(24px, env(safe-area-inset-bottom));
   text-align: center;
   color: #fff;
   overflow: hidden;
+  isolation: isolate;
 }
 
 .alarm-screen.active {
   display: flex;
-  animation: alarmIn 0.3s ease;
+  animation: alarmIn 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 @keyframes alarmIn {
-  from { opacity: 0; transform: scale(1.04); }
+  from { opacity: 0; transform: scale(1.03); }
   to { opacity: 1; transform: scale(1); }
+}
+
+/* Pulls the blobs out of the flex flow: they are pure background. */
+.alarm-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Slow drifting colour blobs so the background never feels static. */
+.alarm-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: 0.5;
+  animation: aurora 20s ease-in-out infinite;
+  will-change: transform;
+}
+
+.alarm-blob.one {
+  width: 48vmax;
+  height: 48vmax;
+  background: #6366f1;
+  top: -14vmax;
+  left: -12vmax;
+}
+
+.alarm-blob.two {
+  width: 44vmax;
+  height: 44vmax;
+  background: #db2777;
+  bottom: -16vmax;
+  right: -14vmax;
+  opacity: 0.34;
+  animation-duration: 26s;
+  animation-delay: -8s;
+}
+
+.alarm-blob.three {
+  width: 36vmax;
+  height: 36vmax;
+  background: #06b6d4;
+  top: 44%;
+  left: 58%;
+  opacity: 0.26;
+  animation-duration: 30s;
+  animation-delay: -14s;
+}
+
+@keyframes aurora {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33% { transform: translate3d(7%, -9%, 0) scale(1.14); }
+  66% { transform: translate3d(-8%, 7%, 0) scale(0.9); }
+}
+
+.alarm-stage {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Ring = pulse waves + countdown dial + clock icon, all concentric. */
+.alarm-ring {
+  position: relative;
+  width: 172px;
+  height: 172px;
+  display: grid;
+  place-items: center;
+}
+
+/* Absolutely placed so it never takes a grid cell beside the icon. */
+.alarm-pulse {
+  position: absolute;
+  inset: 0;
 }
 
 .alarm-pulse span {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 220px;
-  height: 220px;
-  margin: -110px 0 0 -110px;
-  border: 2px solid rgba(255, 255, 255, 0.35);
+  inset: 0;
+  border: 2px solid rgba(165, 180, 252, 0.55);
   border-radius: 50%;
-  animation: pulse 2s ease-out infinite;
+  animation: pulse 2.6s ease-out infinite;
 }
 
-.alarm-pulse span:nth-child(2) { animation-delay: 0.66s; }
-.alarm-pulse span:nth-child(3) { animation-delay: 1.33s; }
+.alarm-pulse span:nth-child(2) { animation-delay: 0.85s; }
+.alarm-pulse span:nth-child(3) { animation-delay: 1.7s; }
 
 @keyframes pulse {
-  0% { transform: scale(0.6); opacity: 0.8; }
-  100% { transform: scale(2.4); opacity: 0; }
+  0% { transform: scale(0.72); opacity: 0.7; }
+  100% { transform: scale(1.75); opacity: 0; }
+}
+
+.alarm-dial {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.dial-track,
+.dial-progress {
+  fill: none;
+  stroke-width: 6;
+}
+
+.dial-track {
+  stroke: rgba(255, 255, 255, 0.16);
+}
+
+/* JS lowers stroke-dashoffset as the ring window drains. */
+.dial-progress {
+  stroke: #a5b4fc;
+  stroke-linecap: round;
+  stroke-dasharray: 490.1;
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset 0.85s linear;
+  filter: drop-shadow(0 0 6px rgba(165, 180, 252, 0.75));
 }
 
 .alarm-screen.ringing .alarm-icon {
-  animation: shake 0.6s ease-in-out infinite;
+  animation: shake 1.1s ease-in-out infinite;
 }
 
 @keyframes shake {
-  0%, 100% { transform: rotate(-14deg); }
-  50% { transform: rotate(14deg); }
+  0%, 100% { transform: rotate(-9deg); }
+  50% { transform: rotate(9deg); }
 }
 
 .alarm-icon {
-  font-size: 4rem;
+  font-size: 3.4rem;
   position: relative;
   z-index: 1;
+  filter: drop-shadow(0 8px 18px rgba(2, 6, 23, 0.45));
 }
 
 .alarm-kicker {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 800;
-  letter-spacing: 3px;
-  opacity: 0.7;
-  margin-top: 14px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  opacity: 0.65;
+  margin-top: 20px;
 }
 
 .alarm-time {
-  font-size: 3.2rem;
+  font-size: clamp(2.7rem, 13vw, 3.4rem);
   font-weight: 800;
-  line-height: 1.1;
-  margin-top: 4px;
+  line-height: 1.05;
+  margin-top: 2px;
   font-variant-numeric: tabular-nums;
+  text-shadow: 0 10px 34px rgba(2, 6, 23, 0.5);
+}
+
+/* Everything rises in, one beat apart — feels deliberate, not instant. */
+@keyframes alarmRise {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.alarm-screen.active .alarm-stage {
+  animation: alarmRise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.alarm-screen.active .alarm-card {
+  animation: alarmRise 0.5s 0.08s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.alarm-screen.active .alarm-actions {
+  animation: alarmRise 0.5s 0.16s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.alarm-screen.active .alarm-done {
+  animation: alarmRise 0.5s 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.alarm-screen.active .alarm-hint {
+  animation: alarmRise 0.5s 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .alarm-card {
   position: relative;
   z-index: 1;
-  background: rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 18px;
-  padding: 16px 20px;
-  margin-top: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.07));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 22px;
+  padding: 18px 22px;
   max-width: 420px;
   width: 100%;
+  box-shadow: 0 18px 44px rgba(2, 6, 23, 0.45);
 }
 
 .alarm-title {
-  font-size: 1.25rem;
+  font-size: 1.22rem;
   font-weight: 700;
   word-break: break-word;
 }
@@ -1208,21 +1355,37 @@ textarea {
   word-break: break-word;
 }
 
+/* Pulsing green dot is a ::before so JS can keep writing textContent. */
 .alarm-status {
-  display: inline-block;
-  margin-top: 12px;
-  font-size: 0.78rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 13px;
+  font-size: 0.76rem;
   font-weight: 700;
   letter-spacing: 0.5px;
-  background: rgba(255, 255, 255, 0.18);
-  padding: 5px 12px;
-  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.16);
+  padding: 6px 13px;
+  border-radius: 999px;
+}
+
+.alarm-status::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4ade80;
+  animation: statusDot 1.6s ease-out infinite;
+}
+
+@keyframes statusDot {
+  70% { box-shadow: 0 0 0 9px rgba(74, 222, 128, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
 }
 
 .alarm-actions {
   display: flex;
-  gap: 14px;
-  margin-top: 26px;
+  gap: 12px;
   width: 100%;
   max-width: 420px;
   position: relative;
@@ -1231,52 +1394,92 @@ textarea {
 
 .alarm-btn {
   flex: 1;
-  padding: 18px;
+  padding: 17px 18px;
   border: none;
-  border-radius: 16px;
-  font-size: 1.05rem;
-  font-weight: 700;
+  border-radius: 999px;
+  font-size: 1.02rem;
+  font-weight: 800;
   font-family: inherit;
+  letter-spacing: 0.3px;
   cursor: pointer;
-  transition: transform 0.15s;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+              box-shadow 0.18s ease, filter 0.18s ease;
 }
 
-.alarm-btn:active { transform: scale(0.95); }
+/* Soft top highlight, the way a native call button catches light. */
+.alarm-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 100% at 50% -20%, rgba(255, 255, 255, 0.4), transparent 60%);
+  pointer-events: none;
+}
+
+.alarm-btn:hover { transform: translateY(-2px); }
+.alarm-btn:active { transform: scale(0.96); }
 
 .alarm-btn.snooze {
-  background: rgba(255, 255, 255, 0.92);
-  color: #312e81;
+  background: #f8fafc;
+  color: #1e1b4b;
+  box-shadow: 0 10px 26px rgba(2, 6, 23, 0.4);
 }
 
 .alarm-btn.stop {
-  background: linear-gradient(135deg, #f43f5e, #ef4444);
+  background: linear-gradient(135deg, #fb7185, #e11d48);
   color: #fff;
-  box-shadow: 0 8px 24px rgba(239, 68, 68, 0.45);
+  box-shadow: 0 12px 30px rgba(225, 29, 72, 0.45);
 }
 
+.alarm-btn.stop:hover { filter: brightness(1.06); }
+
 .alarm-done {
-  margin-top: 14px;
-  background: rgba(255, 255, 255, 0.14);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  width: 100%;
+  max-width: 420px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.28);
   color: #fff;
   font-family: inherit;
   font-size: 0.95rem;
-  font-weight: 600;
+  font-weight: 700;
   padding: 14px 26px;
-  border-radius: 14px;
+  border-radius: 999px;
   cursor: pointer;
-  width: 100%;
-  max-width: 420px;
   position: relative;
   z-index: 1;
+  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+              background 0.18s ease, border-color 0.18s ease;
+}
+
+.alarm-done:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.45);
 }
 
 .alarm-done:active { transform: scale(0.97); }
 
 .alarm-hint {
-  margin-top: 16px;
   font-size: 0.78rem;
-  opacity: 0.7;
+  opacity: 0.68;
   position: relative;
   z-index: 1;
+}
+
+/* Short phones: shrink the stage so nothing overflows. */
+@media (max-height: 680px) {
+  .alarm-screen { gap: 12px; }
+  .alarm-ring { width: 132px; height: 132px; }
+  .alarm-icon { font-size: 2.6rem; }
+  .alarm-kicker { margin-top: 14px; }
+  .alarm-time { font-size: 2.5rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alarm-screen,
+  .alarm-screen * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

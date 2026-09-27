@@ -153,6 +153,8 @@ public class AlarmReceiver extends BroadcastReceiver {
     private void dismiss(Context context, AlarmStore store, int id, boolean done) {
         String key = String.valueOf(id);
 
+        store.log(done ? "done" : "stop", "id=" + id + (done
+                ? " marked done from the alarm" : " stopped from the alarm"));
         store.remove(AlarmStoreSection.RINGING, key);
         store.remove(AlarmStoreSection.SNOOZE, key);
         if (done) {
@@ -195,6 +197,8 @@ public class AlarmReceiver extends BroadcastReceiver {
         } catch (Exception ignored) {
         }
 
+        store.log("snooze", "id=" + id + " re-armed in " + info.snoozeMinutes
+                + "m at=" + at);
         AlarmScheduler.schedule(context, info);
     }
 

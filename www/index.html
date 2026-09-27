@@ -328,14 +328,28 @@
     </div>
   </div>
 
-  <!-- Full screen alarm -->
-  <div class="alarm-screen" id="alarmScreen">
-    <div class="alarm-pulse" aria-hidden="true">
-      <span></span><span></span><span></span>
+  <!-- Full screen alarm: incoming-call style, with a dial that counts down
+       how much of the ring window is left -->
+  <div class="alarm-screen" id="alarmScreen" role="dialog" aria-modal="true" aria-label="Reminder alarm">
+    <div class="alarm-bg" aria-hidden="true">
+      <span class="alarm-blob one"></span>
+      <span class="alarm-blob two"></span>
+      <span class="alarm-blob three"></span>
     </div>
-    <div class="alarm-icon">⏰</div>
-    <div class="alarm-kicker">REMINDER</div>
-    <div class="alarm-time" id="alarmTime">--:--</div>
+
+    <div class="alarm-stage">
+      <div class="alarm-ring" aria-hidden="true">
+        <div class="alarm-pulse"><span></span><span></span><span></span></div>
+        <svg class="alarm-dial" viewBox="0 0 172 172">
+          <circle class="dial-track" cx="86" cy="86" r="78"></circle>
+          <circle class="dial-progress" id="alarmRingProgress" cx="86" cy="86" r="78"></circle>
+        </svg>
+        <div class="alarm-icon">⏰</div>
+      </div>
+
+      <div class="alarm-kicker">Reminder</div>
+      <div class="alarm-time" id="alarmTime">--:--</div>
+    </div>
 
     <div class="alarm-card">
       <div class="alarm-title" id="alarmTitle">Reminder</div>
@@ -344,10 +358,11 @@
     </div>
 
     <div class="alarm-actions">
-      <button class="alarm-btn snooze" id="alarmSnooze">Snooze</button>
-      <button class="alarm-btn stop" id="alarmStop">Stop</button>
+      <button class="alarm-btn snooze" id="alarmSnooze" type="button">Snooze</button>
+      <button class="alarm-btn stop" id="alarmStop" type="button">Stop</button>
     </div>
-    <button class="alarm-done" id="alarmDone">✓ &nbsp;Mark as Done</button>
+
+    <button class="alarm-done" id="alarmDone" type="button">✓ &nbsp;Mark as Done</button>
 
     <div class="alarm-hint" id="alarmHint">Tap a button to silence the alarm</div>
   </div>

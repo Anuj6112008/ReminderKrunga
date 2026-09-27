@@ -83,6 +83,9 @@ const alarmSnoozeBtn = $('alarmSnooze');
 const alarmStopBtn = $('alarmStop');
 const alarmDoneBtn = $('alarmDone');
 const alarmAudio = $('alarmAudio');
+// Countdown dial around the alarm icon (SVG r=78 → circumference in user units)
+const alarmRingProgress = $('alarmRingProgress');
+const ALARM_DIAL_C = 2 * Math.PI * 78;
 
 // Settings
 const settingsOverlay = $('settingsOverlay');
@@ -1027,6 +1030,13 @@ function updateAlarmStatus() {
   const mins = Math.floor(left / 60000);
   const secs = Math.floor((left % 60000) / 1000);
   alarmStatus.textContent = `Ringing… stops in ${mins}:${pad(secs)}`;
+
+  // Dial drains with the ring window: full circle at the start, empty at 0:00.
+  if (alarmRingProgress) {
+    const total = Math.max(1, settings.ringMinutes * 60000);
+    const frac = Math.min(1, left / total);
+    alarmRingProgress.style.strokeDashoffset = String(ALARM_DIAL_C * (1 - frac));
+  }
 }
 
 /**
@@ -1240,12 +1250,14 @@ async function snoozeReminder(r) {
 
   await saveData();
   await scheduleReminder(r);
+  diag('js', `snooze id=${r.id} #${r.snoozeCount} for ${settings.snoozeMinutes}m`);
   render();
   showToast(`Snoozed for ${settings.snoozeMinutes} min ⏳`, 'success');
 }
 
 async function stopAlarmOnly() {
   const r = alarmState ? getReminder(alarmState.id) : null;
+  if (r) diag('js', `stop id=${r.id} from the alarm screen`);
   hideAlarm();
   if (r) {
     r.snoozedUntil = null;
@@ -1257,6 +1269,7 @@ async function stopAlarmOnly() {
 
 async function doneFromAlarm() {
   const r = alarmState ? getReminder(alarmState.id) : null;
+  if (r) diag('js', `done id=${r.id} from the alarm screen`);
   hideAlarm();
   if (r && !r.done) {
     await toggleDone(r.id);

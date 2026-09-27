@@ -101,6 +101,8 @@ last events from both sides of the bridge:
 | `fire … SKIPPED stale` | it was delivered too late to ring |
 | `fire … UNKNOWN` | it fired but no longer had a reminder attached |
 | `fgs … REFUSED` | Android blocked the ringing service, so `AlarmRingFallback` took over |
+| `snooze … re-armed in 5m` | Snooze was pressed (alarm screen or notification) and re-booked |
+| `stop` / `done` | the ring was silenced / completed from the alarm screen or notification |
 | `heal … missing` | a schedule Android had lost was re-booked on app open |
 
 Events are durable (they survive the process being killed) and kept one slot per type and alarm,
