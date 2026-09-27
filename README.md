@@ -103,11 +103,16 @@ last events from both sides of the bridge:
 | `fgs … REFUSED` | Android blocked the ringing service, so `AlarmRingFallback` took over |
 | `snooze … re-armed in 5m` | Snooze was pressed (alarm screen or notification) and re-booked |
 | `stop` / `done` | the ring was silenced / completed from the alarm screen or notification |
+| `js … already stopped on Android` | the lock-screen Stop was honoured: the app asks instead of ringing again |
 | `heal … missing` | a schedule Android had lost was re-booked on app open |
 
 Events are durable (they survive the process being killed) and kept one slot per type and alarm,
 so opening the app repeatedly never washes the evidence out. **Copy log** puts the whole thing on
 the clipboard — that is what to send when reporting that an alarm did not ring.
+
+A **Stop pressed while the app was closed** is remembered by Android too. Opening the app
+afterwards does not start ringing again — it raises a popup with **Snooze / Mark done / Later**
+instead, because ringing again would throw away what the user just did.
 
 ## ⚠️ One Capacitor pitfall that disables every alarm
 

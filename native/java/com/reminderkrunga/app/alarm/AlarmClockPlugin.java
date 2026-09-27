@@ -33,6 +33,7 @@ public class AlarmClockPlugin extends Plugin {
     private static final String RINGING = AlarmReceiver.AlarmStoreSection.RINGING;
     private static final String SNOOZE = AlarmReceiver.AlarmStoreSection.SNOOZE;
     private static final String PENDING_DONE = AlarmReceiver.AlarmStoreSection.PENDING_DONE;
+    private static final String STOPPED = AlarmReceiver.AlarmStoreSection.STOPPED;
 
     /**
      * Read a number whatever type the JSON decoder produced.
@@ -159,6 +160,7 @@ public class AlarmClockPlugin extends Plugin {
         out.put("pending", store.all(PENDING));
         out.put("snooze", store.all(SNOOZE));
         out.put("pendingDone", store.all(PENDING_DONE));
+        out.put("stopped", store.all(STOPPED));
         out.put("log", store.readLog());
         out.put("androidO", Build.VERSION.SDK_INT >= Build.VERSION_CODES.O);
         call.resolve(out);

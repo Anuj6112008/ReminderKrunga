@@ -566,6 +566,43 @@ textarea {
   flex: 1;
 }
 
+/* ============ "STOPPED ON THE LOCK SCREEN" POPUP ============ */
+.ring-popup {
+  position: relative;
+  animation: popupPop 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.15);
+}
+
+.ring-popup-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+}
+
+.ring-popup-icon {
+  font-size: 2.4rem;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.ring-popup .modal-footer {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Snooze is the answer most people want — give it a whole row. */
+.ring-popup .btn-primary {
+  flex: 1 0 100%;
+}
+
+.ring-popup .btn-secondary {
+  flex: 1;
+}
+
+@keyframes popupPop {
+  from { opacity: 0; transform: scale(0.94) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
 /* ============ TOAST ============ */
 .toast {
   position: fixed;

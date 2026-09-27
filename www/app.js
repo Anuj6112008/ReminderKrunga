@@ -86,6 +86,14 @@ const alarmAudio = $('alarmAudio');
 // Countdown dial around the alarm icon (SVG r=78 → circumference in user units)
 const alarmRingProgress = $('alarmRingProgress');
 const ALARM_DIAL_C = 2 * Math.PI * 78;
+// "You already stopped this on the lock screen" popup
+const ringPopupOverlay = $('ringPopupOverlay');
+const ringPopupTitle = $('ringPopupTitle');
+const ringPopupMsg = $('ringPopupMsg');
+const ringPopupSnoozeBtn = $('ringPopupSnooze');
+const ringPopupDoneBtn = $('ringPopupDone');
+const ringPopupDismissBtn = $('ringPopupDismiss');
+const ringPopupCloseBtn = $('ringPopupClose');
 
 // Settings
 const settingsOverlay = $('settingsOverlay');
@@ -609,6 +617,8 @@ let wakeLock = null;
 let jsRinging = false;
 let nativeRingSeen = false;
 let nativePollPending = false;
+// The reminder behind the "already stopped" popup, while it is on screen.
+let stoppedPopupFor = null;
 
 /* ---------- native alarm bridge (rings while the phone is locked) ------- */
 
@@ -1168,6 +1178,43 @@ async function syncNativeState() {
   if (r) await fireAlarm(r, info.firedAt || Date.now());
 }
 
+/**
+ * Has Android already rung this occurrence and the user pressed Stop on the
+ * lock screen while the WebView was asleep?
+ *
+ * The native side remembers the moment of the stop. If it is newer than the
+ * occurrence we are about to ring, ringing again would simply ignore what the
+ * user just did — so we hand them a popup with choices instead.
+ */
+async function wasStoppedNatively(id, fireMs) {
+  if (!NativeAlarm || !fireMs) return false;
+  try {
+    const st = await nativeGetState();
+    const entry = st && st.stopped && st.stopped[String(id)];
+    return !!entry && Number(entry.at) >= Number(fireMs);
+  } catch (e) {
+    return false;   // no bridge answer: behave like before
+  }
+}
+
+/**
+ * Replaces the re-ring when a stop was taken outside the app: a popup the
+ * user can cut, plus Snooze / Done so nothing is stuck.
+ */
+function showStoppedPopup(r, fireMs) {
+  stoppedPopupFor = r;
+  ringPopupTitle.textContent = r.title;
+  ringPopupMsg.textContent = `It rang at ${fmtTime(fireMs)} and you stopped it `
+    + `from the lock screen. Nothing will ring again until you pick one.`;
+  ringPopupSnoozeBtn.textContent = `Snooze ${settings.snoozeMinutes} min`;
+  ringPopupOverlay.classList.add('active');
+}
+
+function hideStoppedPopup() {
+  ringPopupOverlay.classList.remove('active');
+  stoppedPopupFor = null;
+}
+
 async function fireAlarm(r, fireMs) {
   if (alarmState) return;
 
@@ -1181,6 +1228,15 @@ async function fireAlarm(r, fireMs) {
   r.lastRingKey = String(fireMs);
   saveData();
   diag('js', `fireAlarm id=${r.id} fireMs=${fireMs} (jsRinging next)`);
+
+  // Already stopped on Android -> never ring here, ask instead.
+  if (await wasStoppedNatively(r.id, fireMs)) {
+    alarmState = null;
+    nativeRingSeen = false;
+    diag('js', `already stopped on Android id=${r.id} fireMs=${fireMs} -> popup instead of ring`);
+    showStoppedPopup(r, fireMs);
+    return;
+  }
 
   // The full screen alarm takes over — silence the native repeat alerts.
   cancelReminderNotifications(r.id);
@@ -1289,6 +1345,31 @@ alarmStopBtn.addEventListener('click', () => {
 
 alarmDoneBtn.addEventListener('click', () => {
   doneFromAlarm();
+});
+
+/* ---- buttons of the "you already stopped this" popup ---- */
+ringPopupSnoozeBtn.addEventListener('click', async () => {
+  const r = stoppedPopupFor;
+  hideStoppedPopup();
+  if (r) await snoozeReminder(r);
+});
+
+ringPopupDoneBtn.addEventListener('click', async () => {
+  const r = stoppedPopupFor;
+  hideStoppedPopup();
+  if (r && !r.done) {
+    await toggleDone(r.id);
+    showToast('Done! Great job 🎉', 'success');
+  }
+});
+
+[ringPopupDismissBtn, ringPopupCloseBtn].forEach((btn) => {
+  btn.addEventListener('click', hideStoppedPopup);
+});
+
+// Tap outside the card = cut it, like any other dialog.
+ringPopupOverlay.addEventListener('click', (e) => {
+  if (e.target === ringPopupOverlay) hideStoppedPopup();
 });
 
 // Autoplay can be blocked: first tap on the alarm screen starts the sound.

@@ -71,6 +71,11 @@ public class AlarmReceiver extends BroadcastReceiver {
         long age = now - info.at;
         store.log("fire", "id=" + id + " at=" + info.at + " ageMs=" + age);
 
+        // A "user pressed Stop" marker only belongs to the occurrence it
+        // silenced. A fresh ring clears it, so an old stop can never be
+        // mistaken for this one and swallow the alarm.
+        store.remove(AlarmStoreSection.STOPPED, key);
+
         // Re-arm repeating alarms before anything else so a crash mid-ring
         // still leaves the next occurrence booked.
         if (info.base > 0 && !"none".equals(info.repeat)) {
@@ -162,6 +167,15 @@ public class AlarmReceiver extends BroadcastReceiver {
                 store.put(AlarmStoreSection.PENDING_DONE, key, new JSONObject().put("done", true));
             } catch (Exception ignored) {
             }
+        } else {
+            // The user silenced THIS occurrence from the lock screen while the
+            // WebView was asleep. Remember it, or the app would start ringing
+            // again the moment it is opened.
+            try {
+                store.put(AlarmStoreSection.STOPPED, key,
+                        new JSONObject().put("at", System.currentTimeMillis()));
+            } catch (Exception ignored) {
+            }
         }
 
         // A future occurrence for a repeating alarm stays armed untouched.
@@ -208,6 +222,8 @@ public class AlarmReceiver extends BroadcastReceiver {
         public static final String RINGING = "ringing";
         public static final String SNOOZE = "snooze";
         public static final String PENDING_DONE = "pendingDone";
+        /** id -> { at } : the user pressed Stop on the lock screen at `at`. */
+        public static final String STOPPED = "stopped";
 
         private AlarmStoreSection() {
         }
