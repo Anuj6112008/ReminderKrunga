@@ -23,7 +23,7 @@ VAPID_SUBJECT = "mailto:anuj6112008@users.noreply.github.com"
 # it, `wrangler deploy` needs the real one pasted in after creating it.
 [[kv_namespaces]]
 binding = "STORE"
-id = "00000000000000000000000000000000"
+id = "b04bef7b1a8f41ed9fb81b6e6531266b"
 
 # One pass every minute -> alarm notifications arrive within 0-60 seconds.
 [triggers]

@@ -1,7 +1,6 @@
-// Push server settings - filled in after `wrangler deploy`
-// (see push-server/README.md). Empty values keep web push OFF: everything
-// else in the app works normally without it.
+// Push server settings - deployed on Cloudflare Workers (free tier).
+// See push-server/README.md for how this was set up.
 window.RK_PUSH = {
-  api: '',            // e.g. "https://rk-push.<your-subdomain>.workers.dev"
-  vapidPublicKey: ''  // printed by `node gen-keys.js`
+  api: 'https://rk-push.anujtiwari0185.workers.dev',
+  vapidPublicKey: 'BB8g5yNCPryQWYKFEtU22uogJASPpSNKIlS6CPpZ8JnHR5O_dQtmvmeBi-StTdtiB2g6lRURpJHpWIu5s-GWEWc'
 };
