@@ -57,6 +57,43 @@ async function storeKey(deviceKey) {
   return `dev:${hex}`;
 }
 
+const INDEX_KEY = 'devices';
+
+/**
+ * Every known device key, kept in ONE key so the per-minute cron only does
+ * reads. The free tier allows 1,000 list ops per day, but a list() in every
+ * sweep needs 1,440 - hitting that quota makes ALL KV operations fail with
+ * 429 until 00:00 UTC, i.e. notifications die for the rest of the day.
+ * Reads have a 100,000/day budget, so the index costs almost nothing.
+ */
+async function deviceIndex(env) {
+  const cached = await env.STORE.get(INDEX_KEY, 'json');
+  if (Array.isArray(cached)) return cached;
+  // First pass after this fix (or a lost index): build it from one listing.
+  const keys = [];
+  let cursor;
+  do {
+    const page = await env.STORE.list({ prefix: 'dev:', cursor, limit: 100 });
+    for (const item of page.keys) keys.push(item.name);
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  await env.STORE.put(INDEX_KEY, JSON.stringify(keys));
+  return keys;
+}
+
+async function indexAdd(env, key) {
+  const keys = await deviceIndex(env);
+  if (keys.indexOf(key) !== -1) return;
+  keys.push(key);
+  await env.STORE.put(INDEX_KEY, JSON.stringify(keys));
+}
+
+async function indexRemove(env, key) {
+  const keys = await deviceIndex(env);
+  if (keys.indexOf(key) === -1) return;
+  await env.STORE.put(INDEX_KEY, JSON.stringify(keys.filter((k) => k !== key)));
+}
+
 function validSubscription(sub) {
   if (!sub || typeof sub.endpoint !== 'string') return false;
   try {
@@ -206,21 +243,21 @@ async function processDevice(env, key, state, now) {
 
 async function sweep(env) {
   const now = Date.now();
-  let cursor;
   let dead = 0;
-  do {
-    const page = await env.STORE.list({ prefix: 'dev:', cursor, limit: 100 });
-    for (const item of page.keys) {
-      const state = await env.STORE.get(item.name, 'json');
-      if (!state) continue;
-      const result = await processDevice(env, item.name, state, now);
-      if (result === 'dead') {
-        dead += 1;
-        await env.STORE.delete(item.name);
-      }
+  // Reads only - see deviceIndex() for why list() must never run per sweep.
+  const keys = await deviceIndex(env);
+  for (const key of keys) {
+    const state = await env.STORE.get(key, 'json');
+    // KV writes take up to ~60s to propagate: a just-registered key can read
+    // as null. Skip it - never delist on a null read.
+    if (!state) continue;
+    const result = await processDevice(env, key, state, now);
+    if (result === 'dead') {
+      dead += 1;
+      await env.STORE.delete(key);
+      await indexRemove(env, key);
     }
-    cursor = page.list_complete ? undefined : page.cursor;
-  } while (cursor);
+  }
   return dead;
 }
 
@@ -271,6 +308,7 @@ async function handleFetch(request, env) {
         return json({ error: 'valid push subscription required' }, 400);
       }
       await env.STORE.put(loaded.key, JSON.stringify(loaded.state));
+      await indexAdd(env, loaded.key);
       return json({ ok: true });
     }
 
@@ -280,6 +318,7 @@ async function handleFetch(request, env) {
       loaded.state.reminders = mergeReminders(loaded.state.reminders, loaded.body.reminders);
       loaded.state.updatedAt = Date.now();
       await env.STORE.put(loaded.key, JSON.stringify(loaded.state));
+      await indexAdd(env, loaded.key);
       return json({ ok: true, count: loaded.state.reminders.length });
     }
 

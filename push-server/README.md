@@ -20,6 +20,18 @@ node test-local.js          # 43/43 expected
 
 `RK_ECHO_URL` overrides the echo endpoint used by part 2.
 
+## KV budget (free tier — important)
+
+Free tier gives 100,000 **reads** but only **1,000 writes/deletes/lists per
+day**. The cron runs 1,440 times/day, so a `list()` inside every sweep would
+blow the quota — and once exceeded, **all** KV operations fail with 429 until
+00:00 UTC (notifications die for the rest of the day).
+
+The device set therefore lives in a single `devices` index key
+(`deviceIndex()`): each sweep costs 1 read (index) + 1 read per device, and
+writes happen only when a chain step advances, a reminder changes, or a
+device registers. Never add a per-sweep `list()`/`put()`.
+
 ## Deploy (one time, free Cloudflare account, no card)
 
 ```sh
