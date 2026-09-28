@@ -299,6 +299,9 @@ async function saveData() {
   } catch (e) {
     console.error('Save failed:', e);
   }
+
+  // Any change to the list re-uploads the schedule to the push worker.
+  pushSyncSoon();
 }
 
 async function saveSettings() {
@@ -1227,6 +1230,7 @@ async function fireAlarm(r, fireMs) {
 
   r.lastRingKey = String(fireMs);
   saveData();
+  pushServerQuiet(r.id);   // ringing here -> stop the server-side nudges
   diag('js', `fireAlarm id=${r.id} fireMs=${fireMs} (jsRinging next)`);
 
   // Already stopped on Android -> never ring here, ask instead.
@@ -2293,20 +2297,22 @@ function setupPWA() {
       navigator.serviceWorker.register('./sw.js')
         .then((reg) => diag('pwa', `service worker ready scope=${reg && reg.scope}`))
         .catch((err) => diag('pwa', `service worker FAILED ${err}`));
+      // Notification tapped while the app is already open -> hand over the URL.
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        const msg = event.data;
+        if (msg && msg.type === 'rk-notification-open') handlePushOpen(msg.url);
+      });
     }
   } catch (e) {
     diag('pwa', `service worker error ${e}`);
   }
 
-  // iOS Safari cannot show an install prompt — offer instructions instead.
+  // Install / enable card (iOS Safari has no beforeinstallprompt).
   try {
     const card = $('pwaInstallCard');
     if (card) {
-      const dismissed = localStorage.getItem('rkInstallDismissed') === '1';
-      if (isIOSDevice() && !isStandalonePWA() && !dismissed) {
-        card.hidden = false;
-        diag('pwa', 'install hint shown (iOS Safari, not installed yet)');
-      }
+      const action = $('pwaInstallAction');
+      if (action) action.onclick = () => { pushEnable(); };
       const close = $('pwaInstallClose');
       if (close) {
         close.onclick = () => {
@@ -2314,9 +2320,315 @@ function setupPWA() {
           try { localStorage.setItem('rkInstallDismissed', '1'); } catch (e) { /* ignore */ }
         };
       }
+      refreshPushCard();
     }
   } catch (e) {
     diag('pwa', `install hint error ${e}`);
+  }
+}
+
+/* ---- Web push: subscribe, sync the schedule, open from a notification ---- */
+
+const PUSH_DEVICE_KEY = 'rkPushDeviceKey';
+let pushSubscribed = false;
+let pushSyncTimer = null;
+
+function pushCfg() {
+  return window.RK_PUSH || { api: '', vapidPublicKey: '' };
+}
+
+/** Only on the hosted copy — the APK has its own native alarm layer. */
+function pushHosted() {
+  try {
+    const native = !!(window.Capacitor &&
+      typeof window.Capacitor.isNativePlatform === 'function' &&
+      window.Capacitor.isNativePlatform());
+    return !native && location.protocol === 'https:' &&
+      /(^|\.)github\.io$/.test(location.hostname);
+  } catch (e) { return false; }
+}
+
+function pushPermissionState() {
+  try {
+    return ('Notification' in window) ? Notification.permission : 'unsupported';
+  } catch (e) { return 'unsupported'; }
+}
+
+function pushDeviceKey() {
+  try {
+    let k = localStorage.getItem(PUSH_DEVICE_KEY);
+    if (!k) {
+      k = (window.crypto && window.crypto.randomUUID)
+        ? window.crypto.randomUUID()
+        : 'dev-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem(PUSH_DEVICE_KEY, k);
+    }
+    return k;
+  } catch (e) { return null; }
+}
+
+function urlBase64ToUint8Array(base64) {
+  const pad = '='.repeat((4 - (base64.length % 4)) % 4);
+  const b64 = (base64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(b64);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+/** POST to the push worker. Never throws; returns parsed JSON or null. */
+async function pushPost(path, body) {
+  const cfg = pushCfg();
+  if (!cfg.api) return null;
+  try {
+    const ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 6000) : null;
+    const res = await fetch(cfg.api.replace(/\/+$/, '') + path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: ctrl ? ctrl.signal : undefined
+    });
+    if (timer) clearTimeout(timer);
+    return await res.json().catch(() => null);
+  } catch (e) {
+    diag('pwa', `push ${path} failed: ${e}`);
+    return null;
+  }
+}
+
+/** Create (or reuse) the subscription and register it with the worker. */
+async function pushSubscribe() {
+  const cfg = pushCfg();
+  if (!pushHosted() || !cfg.api || !cfg.vapidPublicKey) return false;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    diag('pwa', 'push unsupported: no ServiceWorker/PushManager');
+    return false;
+  }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(cfg.vapidPublicKey)
+      });
+    }
+    const out = await pushPost('/api/register', {
+      deviceKey: pushDeviceKey(),
+      subscription: sub.toJSON()
+    });
+    if (out && out.ok) {
+      pushSubscribed = true;
+      diag('pwa', 'push subscribed');
+      return true;
+    }
+    diag('pwa', `push register rejected: ${JSON.stringify(out)}`);
+  } catch (e) {
+    diag('pwa', `push subscribe error: ${e}`);
+  }
+  return false;
+}
+
+/**
+ * When the worker should wake this device:
+ *  - snoozed  -> the snooze time
+ *  - one-shot -> its fire time (past = catch-up inside the grace window)
+ *  - repeating -> the NEXT future cycle, never a past one
+ */
+function pushFireMs(r) {
+  if (r.snoozedUntil) {
+    const s = new Date(r.snoozedUntil).getTime();
+    if (Number.isFinite(s)) return s;
+  }
+  const now = Date.now();
+  const cur = currentOccurrenceMs(r);
+  if (cur > now) return cur;
+  if (!isRepeating(r)) return cur;
+  return nextOccurrenceMs(r);
+}
+
+/** Debounced: any data change re-uploads the schedule. */
+function pushSyncSoon() {
+  if (!pushHosted() || !pushCfg().api) return;
+  if (pushSyncTimer) clearTimeout(pushSyncTimer);
+  pushSyncTimer = setTimeout(() => {
+    pushSyncTimer = null;
+    pushSyncNow();
+  }, 1500);
+}
+
+async function pushSyncNow() {
+  if (!pushSubscribed) return;
+  const deviceKey = pushDeviceKey();
+  if (!deviceKey) return;
+  const list = [];
+  for (const r of reminders) {
+    if (!r || r.done) continue;
+    // Ringing on this device right now -> keep the server quiet.
+    if (alarmState && String(alarmState.id) === String(r.id)) continue;
+    const fireMs = pushFireMs(r);
+    if (!Number.isFinite(fireMs)) continue;
+    list.push({
+      id: String(r.id),
+      title: String(r.title || 'Reminder').slice(0, 160),
+      note: String(r.description || r.note || '').slice(0, 300),
+      fireMs
+    });
+  }
+  const out = await pushPost('/api/sync', { deviceKey, reminders: list });
+  if (out && out.ok) diag('pwa', `schedule synced (${out.count} due)`);
+}
+
+/** The full-screen alarm is ringing locally -> the worker stops nudging us. */
+function pushServerQuiet(id) {
+  if (!pushSubscribed) return;
+  pushPost('/api/dismiss', { deviceKey: pushDeviceKey(), id: String(id), mode: 'quiet' });
+}
+
+/** One visible proof-notification after the first successful subscribe. */
+async function pushSendTest() {
+  try {
+    if (localStorage.getItem('rkPushTested') === '1') return;
+  } catch (e) { /* ignore */ }
+  const out = await pushPost('/api/test', { deviceKey: pushDeviceKey() });
+  if (out && out.ok) {
+    try { localStorage.setItem('rkPushTested', '1'); } catch (e) { /* ignore */ }
+    diag('pwa', 'test notification sent');
+  }
+}
+
+/** Enable button: iOS only shows the permission prompt from a user gesture. */
+async function pushEnable() {
+  if (!pushHosted()) return;
+  if (!('Notification' in window)) {
+    showToast('This browser does not support notifications', 'error');
+    return;
+  }
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') {
+      showToast('Permission denied — reminders won\u2019t ring', 'error');
+      refreshPushCard();
+      return;
+    }
+    const ok = await pushSubscribe();
+    if (ok) {
+      showToast('Alarm notifications enabled ✓', 'success');
+      await pushSyncNow();
+      await pushSendTest();
+    } else {
+      showToast('Could not enable notifications', 'error');
+    }
+  } catch (e) {
+    diag('pwa', `enable error: ${e}`);
+    showToast('Could not enable notifications', 'error');
+  }
+  refreshPushCard();
+}
+
+/** Returning user (permission already granted) -> subscribe silently. */
+async function pushAutoStart() {
+  if (!pushHosted()) { refreshPushCard(); return; }
+  if (!pushCfg().api) {
+    diag('pwa', 'push server not configured (www/push-config.js)');
+    refreshPushCard();
+    return;
+  }
+  if (pushPermissionState() !== 'granted') { refreshPushCard(); return; }
+  try {
+    if (await pushSubscribe()) {
+      await pushSyncNow();
+      await pushSendTest();
+    }
+  } catch (e) { diag('pwa', `auto start error: ${e}`); }
+  refreshPushCard();
+}
+
+/** Install / enable guidance until alarms can actually ring on this device. */
+function refreshPushCard() {
+  const card = $('pwaInstallCard');
+  if (!card) return;
+  if (!pushHosted()) { card.hidden = true; return; }
+
+  const perm = pushPermissionState();
+  const installed = isStandalonePWA();
+  let dismissed = false;
+  try { dismissed = localStorage.getItem('rkInstallDismissed') === '1'; } catch (e) { /* ignore */ }
+
+  const icon = $('pwaInstallIcon');
+  const title = $('pwaInstallTitle');
+  const desc = $('pwaInstallDesc');
+  const action = $('pwaInstallAction');
+
+  if (perm === 'granted') {
+    if (installed || dismissed) { card.hidden = true; return; }
+    // Not installed yet (e.g. iOS Safari): how to put it on the home screen.
+    if (icon) icon.textContent = '📲';
+    if (title) title.textContent = 'ReminderKrunga ko home screen lagao';
+    if (desc) desc.innerHTML = 'Safari me <b>Share</b> ⬆️ → <b>Add to Home Screen</b> ➕ chuno. Phir ek tap me full screen khulega.';
+    if (action) action.hidden = true;
+    card.hidden = false;
+    return;
+  }
+
+  if (perm === 'denied') {
+    if (dismissed) { card.hidden = true; return; }
+    if (icon) icon.textContent = '🔕';
+    if (title) title.textContent = 'Notifications blocked hain';
+    if (desc) desc.innerHTML = 'Browser/phone settings me is site ke liye <b>Notifications Allow</b> karo, phir app refresh karo.';
+    if (action) action.hidden = true;
+    card.hidden = false;
+    return;
+  }
+
+  // Never asked: without permission no alarm can ring — always offer it.
+  if (icon) icon.textContent = '🔔';
+  if (title) title.textContent = 'Alarm notifications enable karo';
+  if (desc) desc.innerHTML = 'Bina iske reminder time par nahi bajenge. <b>Enable</b> dabao, phir prompt me <b>Allow</b> chuno.';
+  if (action) { action.hidden = false; action.textContent = 'Enable alarm notifications'; }
+  card.hidden = false;
+}
+
+/**
+ * A notification was tapped — URL (`?r=<id>&act=...`) or SW message:
+ * open the alarm screen for it, or apply snooze / done right away.
+ */
+async function handlePushOpen(link) {
+  try {
+    const url = link ? new URL(link, location.origin) : new URL(location.href);
+    const rid = url.searchParams.get('r');
+    if (!rid) return;
+    if (!link) {
+      // Strip the params so a reload does not replay the same alarm.
+      try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) { /* ignore */ }
+    }
+    const act = url.searchParams.get('act');
+    const r = reminders.find(x => String(x.id) === String(rid)) || null;
+    if (!r || r.done) { diag('pwa', `open link: reminder ${rid} not pending`); return; }
+
+    if (act === 'snooze') {
+      if (alarmState) hideAlarm();
+      await snoozeReminder(r);
+      diag('pwa', `open link: snoozed id=${r.id}`);
+      return;
+    }
+    if (act === 'done') {
+      if (alarmState && String(alarmState.id) === String(r.id)) {
+        await doneFromAlarm();
+      } else {
+        await toggleDone(r.id);
+        showToast('Done! Great job 🎉', 'success');
+      }
+      diag('pwa', `open link: done id=${r.id}`);
+      return;
+    }
+    if (!alarmState) {
+      diag('pwa', `open link: alarm for id=${r.id}`);
+      await fireAlarm(r, pendingFireMs(r));
+    }
+  } catch (e) {
+    diag('pwa', `open link error: ${e}`);
   }
 }
 
@@ -2332,6 +2644,7 @@ function setupPWA() {
   await loadData();
   setupNotificationListeners();
   setupPWA();
+  pushAutoStart();   // hosted PWA: subscribe if permission is already granted
 
   const elapsed = Date.now() - startTime;
   if (elapsed < MIN_LOADER_MS) {
@@ -2356,6 +2669,9 @@ function setupPWA() {
   // Status card: what Android is actually doing with our alarms.
   setupDiagnostics();
   renderDiagnostics();
+
+  // A notification tap can arrive before the first tick (?r=<id>&act=...).
+  handlePushOpen();
 
   // Catch anything that came due while the app was closed / starting up,
   // then heal any native schedule that got lost (e.g. app killed mid-alarm).

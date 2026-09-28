@@ -9,11 +9,12 @@
  * Notification tap -> opens/navigates to the reminder URL carried in the
  * payload ("navigate"), so a locked phone goes straight to the alarm screen.
  */
-const CACHE = 'rk-shell-v1';
+const CACHE = 'rk-shell-v2';
 const SHELL = [
   './',
   './index.html',
   './app.js',
+  './push-config.js',
   './style.css',
   './icon.png',
   './icon-192.png',
@@ -161,9 +162,17 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil((async () => {
     try {
       const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      if (!event.action) {
-        for (const client of windows) {
-          if ('focus' in client) { await client.focus(); return; }
+      // App already open: focus it and hand over the URL so it can open the
+      // alarm / apply the action right away (no navigation needed).
+      for (const client of windows) {
+        if ('focus' in client) {
+          await client.focus();
+          client.postMessage({
+            type: 'rk-notification-open',
+            url: target,
+            action: event.action || null
+          });
+          return;
         }
       }
       await self.clients.openWindow(target);

@@ -1,0 +1,5 @@
+# Local-only secrets for `wrangler dev` - never commit these.
+node_modules/
+.dev.vars
+.wrangler/
+test-cert.pfx

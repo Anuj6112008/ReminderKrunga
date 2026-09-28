@@ -1574,6 +1574,23 @@ textarea {
   line-height: 1.45;
 }
 
+.pwa-install-btn {
+  margin-top: 7px;
+  align-self: flex-start;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 10px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pwa-install-btn[hidden] {
+  display: none;
+}
+
 @keyframes installRise {
   from { transform: translateY(16px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }

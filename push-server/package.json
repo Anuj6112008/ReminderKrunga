@@ -1,0 +1,22 @@
+{
+  "name": "reminderkrunga-push-server",
+  "private": true,
+  "type": "module",
+  "description": "Free-tier Cloudflare Worker that sends timed Web Push nudges for ReminderKrunga on iPhone.",
+  "scripts": {
+    "dev": "wrangler dev --test-scheduled --port 8789",
+    "deploy": "wrangler deploy",
+    "vapid": "web-push generate-vapid-keys",
+    "test": "node test-local.js"
+  },
+  "dependencies": {
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "wrangler": "^4.20.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "workerd@1.20260926.1": true
+  }
+}

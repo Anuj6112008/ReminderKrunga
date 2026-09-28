@@ -50,10 +50,11 @@
   <!-- ============ iOS "Add to Home Screen" helper (shown in Safari only) ============ -->
   <div class="pwa-install" id="pwaInstallCard" hidden>
     <button class="pwa-install-close" id="pwaInstallClose" aria-label="Dismiss">✕</button>
-    <div class="pwa-install-icon">📲</div>
+    <div class="pwa-install-icon" id="pwaInstallIcon">📲</div>
     <div class="pwa-install-text">
-      <b>ReminderKrunga ko home screen lagao</b>
-      <span>Neeche <b>Share</b> ⬆️ dabao → <b>Add to Home Screen</b> ➕ chuno. Phir ek tap me full screen khulega aur alarm notification time par aayega.</span>
+      <b id="pwaInstallTitle">ReminderKrunga ko home screen lagao</b>
+      <span id="pwaInstallDesc">Neeche <b>Share</b> ⬆️ dabao → <b>Add to Home Screen</b> ➕ chuno. Phir ek tap me full screen khulega.</span>
+      <button class="pwa-install-btn" id="pwaInstallAction" hidden>🔔 Enable alarm notifications</button>
     </div>
   </div>
 
@@ -412,6 +413,7 @@
     <button class="toast-action" id="toastAction" type="button">Undo</button>
   </div>
 
+  <script src="push-config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

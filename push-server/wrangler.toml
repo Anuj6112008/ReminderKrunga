@@ -1,0 +1,33 @@
+# ReminderKrunga push server - Cloudflare Workers free tier.
+#
+# Deploy (one time):
+#   1. npx wrangler login                 (free account, no card)
+#   2. npx wrangler kv namespace create STORE   -> paste the id below
+#   3. node gen-keys.js                   -> prints VAPID keys, fills .dev.vars
+#   4. npx wrangler secret put VAPID_PRIVATE_KEY
+#      npx wrangler secret put VAPID_PUBLIC_KEY
+#   5. npx wrangler deploy
+# See README.md in this folder for the full checklist.
+
+name = "rk-push"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+SITE_URL = "https://anuj6112008.github.io/ReminderKrunga/"
+VAPID_SUBJECT = "mailto:anuj6112008@users.noreply.github.com"
+
+# Free KV store (created with: npx wrangler kv namespace create STORE)
+# The id below is a placeholder: `wrangler dev` runs fully local and ignores
+# it, `wrangler deploy` needs the real one pasted in after creating it.
+[[kv_namespaces]]
+binding = "STORE"
+id = "00000000000000000000000000000000"
+
+# One pass every minute -> alarm notifications arrive within 0-60 seconds.
+[triggers]
+crons = ["* * * * *"]
+
+[observability]
+enabled = true
